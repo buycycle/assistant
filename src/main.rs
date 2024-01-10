@@ -8,7 +8,6 @@ use handlers::chat_handler;
 fn app() -> Router {
     Router::new()
         .route("/chat", post(chat_handler))
-        // Add more routes as needed.
 }
 #[tokio::main]
 async fn main() {
