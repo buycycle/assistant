@@ -1,6 +1,7 @@
 use axum::Json;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::env;
 #[derive(Deserialize)]
 pub struct ChatRequest {
     pub message: String,
