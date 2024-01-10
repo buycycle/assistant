@@ -12,7 +12,6 @@ fn app() -> Router {
 }
 #[tokio::main]
 async fn main() {
-    // Load environment variables from a .env file at the beginning of the program
     dotenv().ok();
     let app = app();
     // Bind the server to an address and start it.
