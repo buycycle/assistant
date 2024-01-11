@@ -5,7 +5,7 @@ use axum::{
 };
 use dotenv::dotenv;
 use sqlx::SqlitePool;
-use chat_handlers::chat_handler;
+use chat_handlers::{chat_handler, create_db_pool};
 mod chat_handlers;
 // Define a function to create the Axum app with the database pool.
 async fn app(db_pool: SqlitePool) -> Router {
@@ -15,18 +15,21 @@ async fn app(db_pool: SqlitePool) -> Router {
 }
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     dotenv().ok();
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set");
-    // Create a database pool.
-    let db_pool = SqlitePool::connect(&database_url)
+    let db_pool = create_db_pool(&database_url)
         .await
         .expect("Failed to create database pool");
     // Run database migrations here if necessary
     // sqlx::migrate!("./migrations").run(&db_pool).await.expect("Failed to run database migrations");
     // Bind the server to an address and start it.
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app(db_pool).into_make_service())
+    let server = tokio::net::TcpListener::bind(&"0.0.0.0:3000")
+        .await
+        .unwrap();
+    let router = app(db_pool).await;
+    axum::serve(server, router.into_make_service())
         .await
         .unwrap();
 }

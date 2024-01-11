@@ -4,8 +4,12 @@ use axum::{
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::{sqlite::{SqlitePool, SqliteConnectOptions}, Error};
+use std::str::FromStr;
+
 use std::env;
+use log::{error, info};
+
 #[derive(Deserialize)]
 pub struct ChatRequest {
     pub message: String,
@@ -14,23 +18,24 @@ pub struct ChatRequest {
 pub struct ChatResponse {
     pub response: String,
 }
-use sqlx::Error;
-// Initialize a connection pool to the SQLite database.
-async fn create_db_pool(database_url: &str) -> Result<SqlitePool, Error> {
-    SqlitePoolOptions::new()
-        .connect(database_url)
-        .await
+pub async fn create_db_pool(database_url: &str) -> Result<SqlitePool, Error> {
+    // Remove the `sqlite:` scheme from the `database_url` if it's present
+    let connect_options = SqliteConnectOptions::from_str(database_url)?
+        .create_if_missing(true)
+        .to_owned();
+    let pool = SqlitePool::connect_with(connect_options).await?;
+    Ok(pool)
 }
 // Function to retrieve the conversation history from the database.
 async fn get_conversation_history(pool: &SqlitePool, chat_id: &str) -> Result<Vec<String>, Error> {
     let messages = sqlx::query!(
-        "SELECT content FROM messages WHERE chat_id = ? ORDER BY id",
+        "SELECT content FROM messages WHERE chat_id = ? ORDER BY chat_id",
         chat_id
     )
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|record| record.content)
+    .filter_map(|record| record.content) // Only keep records with Some(String)
     .collect();
     Ok(messages)
 }
