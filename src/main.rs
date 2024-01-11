@@ -10,7 +10,7 @@ mod chat_handlers;
 // Define a function to create the Axum app with the database pool.
 async fn app(db_pool: SqlitePool) -> Router {
     Router::new()
-        .route("/chat/:chat_id", post(chat_handler))
+        .route("/chat", post(chat_handler)) // Updated route
         .layer(Extension(db_pool))
 }
 #[tokio::main]

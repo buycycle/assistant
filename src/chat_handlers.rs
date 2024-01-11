@@ -12,6 +12,7 @@ use log::{error, info};
 
 #[derive(Deserialize)]
 pub struct ChatRequest {
+    pub chat_id: String,
     pub message: String,
 }
 #[derive(Serialize)]
@@ -52,19 +53,29 @@ async fn save_message_to_history(pool: &SqlitePool, chat_id: &str, message: &str
 }
 
 pub async fn chat_handler(
-    Path(chat_id): Path<String>,
     Extension(db_pool): Extension<SqlitePool>,
     Json(chat_request): Json<ChatRequest>,
 ) -> impl IntoResponse {
+    let chat_id = chat_request.chat_id;
+    info!("Received chat request for chat_id: {}", chat_id);
     let client = Client::new();
     let api_key = match env::var("OPENAI_API_KEY") {
         Ok(key) => key,
-        Err(_) => return Json(ChatResponse { response: "OPENAI_API_KEY not set".to_string() }),
+        Err(_) => {
+            error!("OPENAI_API_KEY not set");
+            return Json(ChatResponse { response: "OPENAI_API_KEY not set".to_string() });
+        },
     };
     // Retrieve the conversation history from the database.
     let history = match get_conversation_history(&db_pool, &chat_id).await {
-        Ok(history) => history,
-        Err(_) => return Json(ChatResponse { response: "Failed to retrieve conversation history".to_string() }),
+        Ok(history) => {
+            info!("Successfully retrieved conversation history for chat_id: {}", chat_id);
+            history
+        },
+        Err(e) => {
+            error!("Failed to retrieve conversation history for chat_id: {}: {}", chat_id, e);
+            return Json(ChatResponse { response: "Failed to retrieve conversation history".to_string() });
+        },
     };
     // Construct the messages payload using the conversation history.
     let mut messages = vec![
@@ -95,28 +106,42 @@ pub async fn chat_handler(
         .send()
         .await
     {
-        Ok(res) => res,
-        Err(e) => return Json(ChatResponse { response: format!("Failed to send request to OpenAI: {}", e) }),
+        Ok(res) => {
+            info!("Request to OpenAI API sent successfully");
+            res
+        },
+        Err(e) => {
+            error!("Failed to send request to OpenAI: {}", e);
+            return Json(ChatResponse { response: format!("Failed to send request to OpenAI: {}", e) });
+        },
     };
     if !response.status().is_success() {
         let error_message = match response.text().await {
             Ok(text) => text,
-            Err(_) => "Failed to read error message from OpenAI API response".to_string(),
+            Err(_) => {
+                error!("Failed to read error message from OpenAI API response");
+                "Failed to read error message from OpenAI API response".to_string()
+            },
         };
         return Json(ChatResponse { response: error_message });
     }
     let openai_response: serde_json::Value = match response.json().await {
         Ok(res) => res,
-        Err(_) => return Json(ChatResponse { response: "Failed to parse response from OpenAI".to_string() }),
+        Err(_) => {
+            error!("Failed to parse response from OpenAI");
+            return Json(ChatResponse { response: "Failed to parse response from OpenAI".to_string() });
+        },
     };
     let response_text = openai_response["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or_default()
         .to_string();
     // Save the new message to the conversation history in the database.
-    if let Err(_) = save_message_to_history(&db_pool, &chat_id, &chat_request.message).await {
+    if let Err(e) = save_message_to_history(&db_pool, &chat_id, &chat_request.message).await {
+        error!("Failed to save message to history for chat_id: {}: {}", chat_id, e);
         return Json(ChatResponse { response: "Failed to save message to history".to_string() });
     }
+    info!("Message saved to history for chat_id: {}", chat_id);
     Json(ChatResponse {
         response: response_text,
     })
