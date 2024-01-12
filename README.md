@@ -1,7 +1,24 @@
 # buycycle Chatbot
-This is a chatbot application for the BuyCycle platform, built with [Axum](https://github.com/tokio-rs/axum), an ergonomic and modular web framework built with the [Tokio](https://tokio.rs/) async runtime for Rust. The chatbot is designed to be aware of historical messages, pre-trained on bike knowledge, and integrated with the BuyCycle stock and user platform interactions.
+This is a chatbot application for the buycycle platform, built with [Axum](https://github.com/tokio-rs/axum), a modular web framework built with the [Tokio](https://tokio.rs/) async runtime for Rust.
+
+The chatbot is designed to be aware of historical messages, pre-trained on bike knowledge, and integrated with the BuyCycle stock and user platform interactions.
 ## Aim
 The aim of the BuyCycle chatbot is to provide customer support by helping users find a fitting bike and share knowledge about how to use the platform effectively. It leverages OpenAI's GPT-4 to generate contextually aware responses, ensuring a helpful and informative interaction with users.
+
+## To does
+### Model
+* Messages seem to not be able to saved once there is already a message in the history.
+*
+
+* Also save the bots responses to the message history.
+* Access management
+
+### Finetune to data
+* Add context, start with manual faq, then scrape from url
+* Add a supsample of the Bikes DB, find a fitting one and run recom
+* Add get recommendations for user
+
+
 ## Features
 - RESTful API for handling chat sessions.
 - Integration with OpenAI's GPT-4 for generating chatbot responses.
