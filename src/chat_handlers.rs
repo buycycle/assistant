@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension},
     Json, response::IntoResponse,
 };
 use reqwest::Client;
@@ -30,13 +30,13 @@ pub async fn create_db_pool(database_url: &str) -> Result<SqlitePool, Error> {
 // Function to retrieve the conversation history from the database.
 async fn get_conversation_history(pool: &SqlitePool, chat_id: &str) -> Result<Vec<String>, Error> {
     let messages = sqlx::query!(
-        "SELECT content FROM messages WHERE chat_id = ? ORDER BY chat_id",
+        "SELECT content FROM messages WHERE chat_id = ? ORDER BY timestamp ASC",
         chat_id
     )
     .fetch_all(pool)
     .await?
     .into_iter()
-    .filter_map(|record| record.content) // Only keep records with Some(String)
+    .map(|record| record.content) // Directly map to String, assuming content is NOT NULL
     .collect();
     Ok(messages)
 }
