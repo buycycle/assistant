@@ -8,7 +8,9 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
 ## To does
 ### Model
 * try to query a specific assistant that was created online
-* Add a create assistant function
+* debug create assistant function
+
+* add fns for automatic context file creation
 
 * Also save the bots responses to the message history.
 * Access management
