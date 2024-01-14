@@ -223,6 +223,32 @@ async fn initialize_assistant(
         },
     }
 }
+
+/// Scrapes a list of URLs and saves them as html files in the specified folder.
+async fn scrape_context(folder_path: &str, urls: Vec<String>) -> Result<(), String> {
+    let client = Client::new();
+    for url in urls {
+        let response = client.get(&url).send().await;
+        match response {
+            Ok(res) if res.status().is_success() => {
+                let file_name = url.replace("https://", "").replace("http://", "");
+                let file_path = format!("{}/{}.html", folder_path, file_name);
+                let html = res.text().await.unwrap_or_default();
+                fs::write(file_path, html).map_err(|e| e.to_string())?;
+            },
+            Ok(res) => {
+                return Err(res.text().await.unwrap_or_default());
+            },
+            Err(e) => {
+                return Err(e.to_string());
+            },
+        }
+    }
+    Ok(())
+}
+
+
+
 /// Uploads a file to OpenAI and returns the file ID.
 async fn upload_file(file_path: &str) -> Result<String, String> {
     let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
