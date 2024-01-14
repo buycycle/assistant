@@ -7,8 +7,8 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
 
 ## To does
 ### Model
-* Messages seem to not be able to saved once there is already a message in the history.
-*
+* try to query a specific assistant that was created online
+* Add a create assistant function
 
 * Also save the bots responses to the message history.
 * Access management
