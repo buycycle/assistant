@@ -5,7 +5,7 @@ use axum::{
 };
 use dotenv::dotenv;
 use sqlx::SqlitePool;
-use chat_handlers::{chat_handler, create_db_pool};
+use chat_handlers::{chat_handler, create_db_pool, scrape_context};
 mod chat_handlers;
 // Define a function to create the Axum app with the database pool.
 async fn app(db_pool: SqlitePool) -> Router {
@@ -17,6 +17,20 @@ async fn app(db_pool: SqlitePool) -> Router {
 async fn main() {
     env_logger::init();
     dotenv().ok();
+
+    let folder_path = "context";
+    let urls_to_scrape = vec![
+        "https://buycycle.zendesk.com/hc/en-us".to_string(),
+        // Add more URLs as needed.
+    ];
+    // Run the scrape_context function.
+    match scrape_context(folder_path, urls_to_scrape).await {
+        Ok(()) => println!("Scraping completed successfully."),
+        Err(e) => eprintln!("Scraping failed: {}", e),
+    }
+
+
+
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set");
     let db_pool = create_db_pool(&database_url)

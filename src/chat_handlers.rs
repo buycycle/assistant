@@ -225,19 +225,26 @@ async fn initialize_assistant(
 }
 
 /// Scrapes a list of URLs and saves them as html files in the specified folder.
-async fn scrape_context(folder_path: &str, urls: Vec<String>) -> Result<(), String> {
+pub async fn scrape_context(folder_path: &str, urls: Vec<String>) -> Result<(), String> {
     let client = Client::new();
+    let folder_path = Path::new(folder_path);
+    // Create the folder if it does not exist
+    fs::create_dir_all(&folder_path).map_err(|e| e.to_string())?;
     for url in urls {
         let response = client.get(&url).send().await;
         match response {
             Ok(res) if res.status().is_success() => {
-                let file_name = url.replace("https://", "").replace("http://", "");
-                let file_path = format!("{}/{}.html", folder_path, file_name);
-                let html = res.text().await.unwrap_or_default();
+                // Sanitize the file name by removing URL schemes and replacing slashes with underscores
+                let file_name = url
+                    .replace("https://", "")
+                    .replace("http://", "")
+                    .replace("/", "_");
+                let file_path = folder_path.join(format!("{}.html", file_name));
+                let html = res.text().await.map_err(|e| e.to_string())?;
                 fs::write(file_path, html).map_err(|e| e.to_string())?;
             },
             Ok(res) => {
-                return Err(res.text().await.unwrap_or_default());
+                return Err(res.text().await.map_err(|e| e.to_string())?);
             },
             Err(e) => {
                 return Err(e.to_string());
@@ -246,8 +253,6 @@ async fn scrape_context(folder_path: &str, urls: Vec<String>) -> Result<(), Stri
     }
     Ok(())
 }
-
-
 
 /// Uploads a file to OpenAI and returns the file ID.
 async fn upload_file(file_path: &str) -> Result<String, String> {
