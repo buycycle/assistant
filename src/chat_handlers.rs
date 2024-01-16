@@ -14,6 +14,7 @@ use log::{error, info};
 use std::fs;
 use std::path::Path;
 
+/// db.rs
 pub async fn create_db_pool(database_url: &str) -> Result<SqlitePool, Error> {
     // Remove the `sqlite:` scheme from the `database_url` if it's present
     let connect_options = SqliteConnectOptions::from_str(database_url)?
@@ -152,7 +153,7 @@ pub async fn chat_handler(
     })
 }
 
-
+///assistant.rs
 // Define the response type for the JSON response.
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -172,58 +173,7 @@ struct AttachFilesRequest {
 }
 
 
-// Creates an OpenAI assistant with the specified name, model, and instructions. Tools are so far
-// hardcoded as a code_interpreter.
-///
-/// # Arguments
-/// * `assistant_name` - The name of the assistant to create.
-/// * `model` - The model to use for the assistant (e.g., "gpt-4").
-/// * `instructions` - The instructions for the assistant's behavior.
-///
-/// # Returns
-/// A `Result` containing either the assistant's ID on success or an error message on failure.
-async fn initialize_assistant(
-    assistant_name: &str,
-    model: &str,
-    instructions: &str,
-) -> Result<String, String> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let payload = json!({
-        "instructions": instructions,
-        "name": assistant_name,
-        "tools": [{"type": "code_interpreter"}],
-        "model": model,
-    });
-    let response = client
-        .post("https://api.openai.com/v1/assistants")
-        .bearer_auth(&api_key)
-        .json(&payload)
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => {
-            match res.json::<serde_json::Value>().await {
-                Ok(assistant_response) => {
-                    if let Some(id) = assistant_response["id"].as_str() {
-                        Ok(id.to_string())
-                    } else {
-                        Err("Failed to extract assistant ID from response".to_string())
-                    }
-                },
-                Err(_) => Err("Failed to parse response from OpenAI".to_string()),
-            }
-        },
-        Ok(res) => {
-            let error_message = res.text().await.unwrap_or_default();
-            Err(error_message)
-        },
-        Err(e) => {
-            Err(format!("Failed to send request to OpenAI: {}", e))
-        },
-    }
-}
-
+///context.rs
 /// Scrapes a list of URLs and saves them as html files in the specified folder.
 pub async fn scrape_context(folder_path: &str, urls: Vec<String>) -> Result<(), String> {
     let client = Client::new();
@@ -296,6 +246,59 @@ async fn attach_files(assistant_id: &str, file_ids: Vec<String>) -> Result<(), S
         }
     }
     Ok(())
+}
+
+
+// Creates an OpenAI assistant with the specified name, model, and instructions. Tools are so far
+// hardcoded as a code_interpreter.
+///
+/// # Arguments
+/// * `assistant_name` - The name of the assistant to create.
+/// * `model` - The model to use for the assistant (e.g., "gpt-4").
+/// * `instructions` - The instructions for the assistant's behavior.
+///
+/// # Returns
+/// A `Result` containing either the assistant's ID on success or an error message on failure.
+async fn initialize_assistant(
+    assistant_name: &str,
+    model: &str,
+    instructions: &str,
+) -> Result<String, String> {
+    let client = Client::new();
+    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+    let payload = json!({
+        "instructions": instructions,
+        "name": assistant_name,
+        "tools": [{"type": "code_interpreter"}],
+        "model": model,
+    });
+    let response = client
+        .post("https://api.openai.com/v1/assistants")
+        .bearer_auth(&api_key)
+        .json(&payload)
+        .send()
+        .await;
+    match response {
+        Ok(res) if res.status().is_success() => {
+            match res.json::<serde_json::Value>().await {
+                Ok(assistant_response) => {
+                    if let Some(id) = assistant_response["id"].as_str() {
+                        Ok(id.to_string())
+                    } else {
+                        Err("Failed to extract assistant ID from response".to_string())
+                    }
+                },
+                Err(_) => Err("Failed to parse response from OpenAI".to_string()),
+            }
+        },
+        Ok(res) => {
+            let error_message = res.text().await.unwrap_or_default();
+            Err(error_message)
+        },
+        Err(e) => {
+            Err(format!("Failed to send request to OpenAI: {}", e))
+        },
+    }
 }
 
 /// Creates an OpenAI assistant with the specified name, model, instructions, and file path.
