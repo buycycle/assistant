@@ -5,8 +5,10 @@ use axum::{
 };
 use dotenv::dotenv;
 use sqlx::SqlitePool;
-use chat_handlers::{chat_handler, create_db_pool, scrape_context};
+use chat_handlers::{chat_handler, create_db_pool};
+use assistant::scrape_context;
 mod chat_handlers;
+mod assistant;
 // Define a function to create the Axum app with the database pool.
 async fn app(db_pool: SqlitePool) -> Router {
     Router::new()
