@@ -338,7 +338,7 @@ async fn list_messages(chat_id: &str) -> Result<Vec<SimplifiedMessage>, String> 
 
 
 
-// add_message
+// add_message,
 // curl https://api.openai.com/v1/threads/thread_abc123/messages \
 //  -H "Content-Type: application/json" \
 //  -H "Authorization: Bearer $OPENAI_API_KEY" \
