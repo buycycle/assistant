@@ -255,6 +255,101 @@ async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<String, Stri
 // Reurns:
 // Json Response of all messages in chat
 // log out all of them
+// Struct for deserializing the OpenAI API response
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Message {
+    id: String,
+    created_at: i64,
+    role: String,
+    content: Vec<Content>,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Content {
+    #[serde(rename = "type")]
+    content_type: String,
+    text: Option<TextContent>,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TextContent {
+    value: String,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageListResponse {
+    object: String,
+    data: Vec<Message>,
+}
+// Struct for serializing the simplified message format to be sent to the client
+#[derive(Serialize)]
+pub struct SimplifiedMessage {
+    pub created_at: i64,
+    pub role: String,
+    pub text: String,
+}
+/// Retrieves a list of simplified messages for a given chat thread from the OpenAI API.
+///
+/// Each message includes the `created_at` timestamp, `role`, and text content.
+///
+/// # Arguments
+///
+/// * `chat_id` - A string slice that holds the identifier of the chat thread.
+///
+/// # Returns
+///
+/// This function returns a `Result` which is either:
+/// - `Ok(Vec<SimplifiedMessage>)`: A vector of `SimplifiedMessage` structs representing the simplified messages.
+/// - `Err(String)`: An error message string indicating what went wrong during the operation.
+async fn list_messages(chat_id: &str) -> Result<Vec<SimplifiedMessage>, String> {
+    let client = Client::new();
+    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+    let response = client
+        .get(&format!("https://api.openai.com/v1/threads/{}/messages", chat_id))
+        .header("Content-Type", "application/json")
+        .bearer_auth(&api_key)
+        .header("OpenAI-Beta", "assistants=v1")
+        .send()
+        .await;
+    match response {
+        Ok(res) if res.status().is_success() => {
+            let message_list_response = res.json::<MessageListResponse>().await.map_err(|_| "Failed to parse response from OpenAI".to_string())?;
+            let simplified_messages = message_list_response.data.into_iter().filter_map(|msg| {
+                if let Some(content) = msg.content.into_iter().find(|c| c.content_type == "text") {
+                    if let Some(text_content) = content.text {
+                        return Some(SimplifiedMessage {
+                            created_at: msg.created_at,
+                            role: msg.role,
+                            text: text_content.value,
+                        });
+                    }
+                }
+                None
+            }).collect();
+            Ok(simplified_messages)
+        }
+        Ok(res) => {
+            match res.text().await {
+                Ok(text) => Err(text),
+                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            }
+        }
+        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+    }
+}
+
+
+
+
+// add_message
+// curl https://api.openai.com/v1/threads/thread_abc123/messages \
+//  -H "Content-Type: application/json" \
+//  -H "Authorization: Bearer $OPENAI_API_KEY" \
+//  -H "OpenAI-Beta: assistants=v1" \
+//  -d '{
+//      "role": "user",
+//      "content": "How does AI work? Explain it in simple terms."
+//    }'
+
+
+// run_chat wait for finish and return new message
 
 // create_chat
 // Arguments:
@@ -264,6 +359,8 @@ async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<String, Stri
 // 3. list all messages from chat
 // 4. add welcome back message
 // 5. format and dislay
+//
+
 
 // think about websockets here
 // assitant_chat_handler
