@@ -348,6 +348,63 @@ async fn list_messages(chat_id: &str) -> Result<Vec<SimplifiedMessage>, String> 
 //      "content": "How does AI work? Explain it in simple terms."
 //    }'
 
+// Struct for serializing the message content to be sent to OpenAI
+#[derive(Serialize)]
+struct MessageContent {
+    role: String,
+    content: String,
+}
+/// Sends a message to a given chat thread using the OpenAI API.
+///
+/// # Arguments
+///
+/// * `chat_id` - A string slice that holds the identifier of the chat thread.
+/// * `message` - The message content to be sent.
+/// * `role` - The role of the sender, typically "user" or "system".
+///
+/// # Returns
+///
+/// This function returns a `Result` which is either:
+/// - `Ok(())`: An empty tuple indicating the message was sent successfully.
+/// - `Err(String)`: An error message string indicating what went wrong during the operation.
+async fn add_message(chat_id: &str, message: &str, role: &str) -> Result<(), String> {
+    let client = Client::new();
+    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+    let payload = MessageContent {
+        role: role.to_string(),
+        content: message.to_string(),
+    };
+    let response = client
+        .post(&format!("https://api.openai.com/v1/threads/{}/messages", chat_id))
+        .header("Content-Type", "application/json")
+        .bearer_auth(&api_key)
+        .header("OpenAI-Beta", "assistants=v1")
+        .json(&payload)
+        .send()
+        .await;
+    match response {
+        Ok(res) if res.status().is_success() => Ok(()),
+        Ok(res) => {
+            match res.text().await {
+                Ok(text) => Err(text),
+                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            }
+        }
+        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+    }
+}
+
+// create_run
+// curl https://api.openai.com/v1/threads/thread_abc123/runs \
+//  -H "Authorization: Bearer $OPENAI_API_KEY" \
+//  -H "Content-Type: application/json" \
+//  -H "OpenAI-Beta: assistants=v1" \
+//  -d '{
+//    "assistant_id": "asst_abc123"
+//  }'
+
+// check what is next to check for new messages and then return
+
 
 // run_chat wait for finish and return new message
 
