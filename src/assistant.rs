@@ -33,6 +33,67 @@ struct AttachFilesRequest {
     file_id: String,
 }
 
+// Struct for deserializing the OpenAI API response
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Message {
+    id: String,
+    created_at: i64,
+    role: String,
+    content: Vec<Content>,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Content {
+    #[serde(rename = "type")]
+    content_type: String,
+    text: Option<TextContent>,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TextContent {
+    value: String,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageListResponse {
+    object: String,
+    data: Vec<Message>,
+}
+// Struct for serializing the simplified message format to be sent to the client
+#[derive(Serialize, Clone)]
+pub struct SimplifiedMessage {
+    pub created_at: i64,
+    pub role: String,
+    pub text: String,
+}
+
+// Struct for serializing the message content to be sent to OpenAI
+#[derive(Serialize)]
+struct MessageContent {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct RunResponse {
+    id: String,
+}
+#[derive(Deserialize, Debug)]
+struct RunStatusResponse {
+    id: String,
+    status: String,
+    // Other fields can be added here if needed
+}
+#[derive(Deserialize)]
+pub struct AssistantChatRequest {
+    pub user_id: String,
+    pub message: String,
+}
+// Define the response type for the assistant chat handler.
+#[derive(Serialize)]
+pub struct AssistantChatResponse {
+    pub messages: Vec<SimplifiedMessage>,
+}
+
+
+
 ///context.rs
 /// Scrapes a list of URLs and saves them as html files in the specified folder.
 pub async fn scrape_context(folder_path: &str, urls: Vec<String>) -> Result<(), String> {
@@ -287,36 +348,6 @@ async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<String, Stri
         }
     }
 }
-// Struct for deserializing the OpenAI API response
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Message {
-    id: String,
-    created_at: i64,
-    role: String,
-    content: Vec<Content>,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Content {
-    #[serde(rename = "type")]
-    content_type: String,
-    text: Option<TextContent>,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TextContent {
-    value: String,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct MessageListResponse {
-    object: String,
-    data: Vec<Message>,
-}
-// Struct for serializing the simplified message format to be sent to the client
-#[derive(Serialize, Clone)]
-pub struct SimplifiedMessage {
-    pub created_at: i64,
-    pub role: String,
-    pub text: String,
-}
 /// Retrieves a list of simplified messages for a given chat thread from the OpenAI API.
 ///
 /// Each message includes the `created_at` timestamp, `role`, and text content.
@@ -387,12 +418,6 @@ async fn list_messages(chat_id: &str, only_last: bool) -> Result<Vec<SimplifiedM
     }
 }
 
-// Struct for serializing the message content to be sent to OpenAI
-#[derive(Serialize)]
-struct MessageContent {
-    role: String,
-    content: String,
-}
 /// Sends a message to a given chat thread using the OpenAI API.
 ///
 /// # Arguments
@@ -434,10 +459,6 @@ async fn add_message(chat_id: &str, message: &str, role: &str) -> Result<(), Str
     }
 }
 
-#[derive(Deserialize)]
-struct RunResponse {
-    id: String,
-}
 /// Creates a run for a given thread and assistant.
 ///
 /// # Arguments
@@ -483,12 +504,6 @@ async fn create_run(thread_id: &str, assistant_id: &str) -> Result<String, Strin
     }
 }
 
-#[derive(Deserialize, Debug)]
-struct RunStatusResponse {
-    id: String,
-    status: String,
-    // Other fields can be added here if needed
-}
 /// Retrieves the status of a run for a given thread.
 ///
 /// # Arguments
@@ -527,17 +542,6 @@ async fn run_status(thread_id: &str, run_id: &str) -> Result<String, String> {
         },
         Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
     }
-}
-
-#[derive(Deserialize)]
-pub struct AssistantChatRequest {
-    pub user_id: String,
-    pub message: String,
-}
-// Define the response type for the assistant chat handler.
-#[derive(Serialize)]
-pub struct AssistantChatResponse {
-    pub messages: Vec<SimplifiedMessage>,
 }
 
 // think about websockets here
