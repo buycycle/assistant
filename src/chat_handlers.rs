@@ -1,14 +1,14 @@
-use axum::{
-    extract::Extension,
-    Json, response::IntoResponse,
-};
+use axum::{extract::Extension, response::IntoResponse, Json};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sqlx::{sqlite::{SqlitePool, SqliteConnectOptions}, Error};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePool},
+    Error,
+};
 use std::str::FromStr;
 
-use std::env;
 use log::{error, info};
+use std::env;
 
 /// db.rs
 pub async fn create_db_pool(database_url: &str) -> Result<SqlitePool, Error> {
@@ -33,7 +33,11 @@ async fn get_conversation_history(pool: &SqlitePool, chat_id: &str) -> Result<Ve
     Ok(messages)
 }
 // Function to save a new message to the conversation history in the database.
-async fn save_message_to_history(pool: &SqlitePool, chat_id: &str, message: &str) -> Result<(), Error> {
+async fn save_message_to_history(
+    pool: &SqlitePool,
+    chat_id: &str,
+    message: &str,
+) -> Result<(), Error> {
     sqlx::query!(
         "INSERT INTO messages (chat_id, content) VALUES (?, ?)",
         chat_id,
@@ -65,27 +69,35 @@ pub async fn chat_handler(
         Ok(key) => key,
         Err(_) => {
             error!("OPENAI_API_KEY not set");
-            return Json(ChatResponse { response: "OPENAI_API_KEY not set".to_string() });
-        },
+            return Json(ChatResponse {
+                response: "OPENAI_API_KEY not set".to_string(),
+            });
+        }
     };
     // Retrieve the conversation history from the database.
     let history = match get_conversation_history(&db_pool, &chat_id).await {
         Ok(history) => {
-            info!("Successfully retrieved conversation history for chat_id: {}", chat_id);
+            info!(
+                "Successfully retrieved conversation history for chat_id: {}",
+                chat_id
+            );
             history
-        },
+        }
         Err(e) => {
-            error!("Failed to retrieve conversation history for chat_id: {}: {}", chat_id, e);
-            return Json(ChatResponse { response: "Failed to retrieve conversation history".to_string() });
-        },
+            error!(
+                "Failed to retrieve conversation history for chat_id: {}: {}",
+                chat_id, e
+            );
+            return Json(ChatResponse {
+                response: "Failed to retrieve conversation history".to_string(),
+            });
+        }
     };
     // Construct the messages payload using the conversation history.
-    let mut messages = vec![
-        serde_json::json!({
-            "role": "system",
-            "content": "You are a helpful buyers guide chat bot that helps to find used bikes."
-        }),
-    ];
+    let mut messages = vec![serde_json::json!({
+        "role": "system",
+        "content": "You are a helpful buyers guide chat bot that helps to find used bikes."
+    })];
     for message in &history {
         messages.push(serde_json::json!({
             "role": "user",
@@ -111,11 +123,13 @@ pub async fn chat_handler(
         Ok(res) => {
             info!("Request to OpenAI API sent successfully");
             res
-        },
+        }
         Err(e) => {
             error!("Failed to send request to OpenAI: {}", e);
-            return Json(ChatResponse { response: format!("Failed to send request to OpenAI: {}", e) });
-        },
+            return Json(ChatResponse {
+                response: format!("Failed to send request to OpenAI: {}", e),
+            });
+        }
     };
     if !response.status().is_success() {
         let error_message = match response.text().await {
@@ -123,16 +137,20 @@ pub async fn chat_handler(
             Err(_) => {
                 error!("Failed to read error message from OpenAI API response");
                 "Failed to read error message from OpenAI API response".to_string()
-            },
+            }
         };
-        return Json(ChatResponse { response: error_message });
+        return Json(ChatResponse {
+            response: error_message,
+        });
     }
     let openai_response: serde_json::Value = match response.json().await {
         Ok(res) => res,
         Err(_) => {
             error!("Failed to parse response from OpenAI");
-            return Json(ChatResponse { response: "Failed to parse response from OpenAI".to_string() });
-        },
+            return Json(ChatResponse {
+                response: "Failed to parse response from OpenAI".to_string(),
+            });
+        }
     };
     let response_text = openai_response["choices"][0]["message"]["content"]
         .as_str()
@@ -140,8 +158,13 @@ pub async fn chat_handler(
         .to_string();
     // Save the new message to the conversation history in the database.
     if let Err(e) = save_message_to_history(&db_pool, &chat_id, &chat_request.message).await {
-        error!("Failed to save message to history for chat_id: {}: {}", chat_id, e);
-        return Json(ChatResponse { response: "Failed to save message to history".to_string() });
+        error!(
+            "Failed to save message to history for chat_id: {}: {}",
+            chat_id, e
+        );
+        return Json(ChatResponse {
+            response: "Failed to save message to history".to_string(),
+        });
     }
     info!("Message saved to history for chat_id: {}", chat_id);
     Json(ChatResponse {

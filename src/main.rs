@@ -1,14 +1,10 @@
-use axum::{
-    extract::Extension,
-    routing::post,
-    Router,
-};
+use assistant::scrape_context;
+use axum::{extract::Extension, routing::post, Router};
+use chat_handlers::{chat_handler, create_db_pool};
 use dotenv::dotenv;
 use sqlx::SqlitePool;
-use chat_handlers::{chat_handler, create_db_pool};
-use assistant::scrape_context;
-mod chat_handlers;
 mod assistant;
+mod chat_handlers;
 // Define a function to create the Axum app with the database pool.
 async fn app(db_pool: SqlitePool) -> Router {
     Router::new()
@@ -31,10 +27,7 @@ async fn main() {
         Err(e) => eprintln!("Scraping failed: {}", e),
     }
 
-
-
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db_pool = create_db_pool(&database_url)
         .await
         .expect("Failed to create database pool");
