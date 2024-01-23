@@ -249,12 +249,6 @@ async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<String, Stri
         }
     }
 }
-// list_messages
-// Arguments:
-// chat_id
-// Reurns:
-// Json Response of all messages in chat
-// log out all of them
 // Struct for deserializing the OpenAI API response
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Message {
@@ -298,7 +292,14 @@ pub struct SimplifiedMessage {
 /// This function returns a `Result` which is either:
 /// - `Ok(Vec<SimplifiedMessage>)`: A vector of `SimplifiedMessage` structs representing the simplified messages.
 /// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn list_messages(chat_id: &str) -> Result<Vec<SimplifiedMessage>, String> {
+/// * `only_last` - A boolean flag indicating whether to return only the last message.
+///
+/// # Returns
+///
+/// This function returns a `Result` which is either:
+/// - `Ok(Vec<SimplifiedMessage>)`: A vector of `SimplifiedMessage` structs representing the simplified messages.
+/// - `Err(String)`: An error message string indicating what went wrong during the operation.
+async fn list_messages(chat_id: &str, only_last: bool) -> Result<Vec<SimplifiedMessage>, String> {
     let client = Client::new();
     let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
     let response = client
@@ -311,7 +312,7 @@ async fn list_messages(chat_id: &str) -> Result<Vec<SimplifiedMessage>, String> 
     match response {
         Ok(res) if res.status().is_success() => {
             let message_list_response = res.json::<MessageListResponse>().await.map_err(|_| "Failed to parse response from OpenAI".to_string())?;
-            let simplified_messages = message_list_response.data.into_iter().filter_map(|msg| {
+            let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response.data.into_iter().filter_map(|msg| {
                 if let Some(content) = msg.content.into_iter().find(|c| c.content_type == "text") {
                     if let Some(text_content) = content.text {
                         return Some(SimplifiedMessage {
@@ -323,6 +324,9 @@ async fn list_messages(chat_id: &str) -> Result<Vec<SimplifiedMessage>, String> 
                 }
                 None
             }).collect();
+            if only_last {
+                simplified_messages = simplified_messages.into_iter().rev().take(1).collect();
+            }
             Ok(simplified_messages)
         }
         Ok(res) => {
@@ -336,17 +340,6 @@ async fn list_messages(chat_id: &str) -> Result<Vec<SimplifiedMessage>, String> 
 }
 
 
-
-
-// add_message,
-// curl https://api.openai.com/v1/threads/thread_abc123/messages \
-//  -H "Content-Type: application/json" \
-//  -H "Authorization: Bearer $OPENAI_API_KEY" \
-//  -H "OpenAI-Beta: assistants=v1" \
-//  -d '{
-//      "role": "user",
-//      "content": "How does AI work? Explain it in simple terms."
-//    }'
 
 // Struct for serializing the message content to be sent to OpenAI
 #[derive(Serialize)]
@@ -394,14 +387,94 @@ async fn add_message(chat_id: &str, message: &str, role: &str) -> Result<(), Str
     }
 }
 
-// create_run
-// curl https://api.openai.com/v1/threads/thread_abc123/runs \
-//  -H "Authorization: Bearer $OPENAI_API_KEY" \
-//  -H "Content-Type: application/json" \
-//  -H "OpenAI-Beta: assistants=v1" \
-//  -d '{
-//    "assistant_id": "asst_abc123"
-//  }'
+
+#[derive(Deserialize)]
+struct RunResponse {
+    id: String,
+}
+/// Creates a run for a given thread and assistant.
+///
+/// # Arguments
+///
+/// * `thread_id` - The identifier of the chat thread.
+/// * `assistant_id` - The identifier of the assistant.
+///
+/// # Returns
+///
+/// This function returns a `Result` which is either:
+/// - `Ok(String)`: The identifier of the created run.
+/// - `Err(String)`: An error message string indicating what went wrong during the operation.
+async fn create_run(thread_id: &str, assistant_id: &str) -> Result<String, String> {
+    let client = Client::new();
+    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+    let payload = json!({
+        "assistant_id": assistant_id,
+    });
+    let response = client
+        .post(&format!("https://api.openai.com/v1/threads/{}/runs", thread_id))
+        .header("Content-Type", "application/json")
+        .bearer_auth(&api_key)
+        .header("OpenAI-Beta", "assistants=v1")
+        .json(&payload)
+        .send()
+        .await;
+    match response {
+        Ok(res) if res.status().is_success() => {
+            let run_response = res.json::<RunResponse>().await.map_err(|_| "Failed to parse response from OpenAI".to_string())?;
+            Ok(run_response.id)
+        }
+        Ok(res) => {
+            match res.text().await {
+                Ok(text) => Err(text),
+                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            }
+        }
+        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+    }
+}
+
+
+#[derive(Deserialize, Debug)]
+struct RunStatusResponse {
+    id: String,
+    status: String,
+    // Other fields can be added here if needed
+}
+/// Retrieves the status of a run for a given thread.
+///
+/// # Arguments
+///
+/// * `thread_id` - The identifier of the chat thread.
+/// * `run_id` - The identifier of the run.
+///
+/// # Returns
+///
+/// This function returns a `Result` which is either:
+/// - `Ok(String)`: The status of the run.
+/// - `Err(String)`: An error message string indicating what went wrong during the operation.
+async fn run_status(thread_id: &str, run_id: &str) -> Result<String, String> {
+    let client = Client::new();
+    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+    let response = client
+        .get(&format!("https://api.openai.com/v1/threads/{}/runs/{}", thread_id, run_id))
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("OpenAI-Beta", "assistants=v1")
+        .send()
+        .await;
+    match response {
+        Ok(res) if res.status().is_success() => {
+            let run_status_response = res.json::<RunStatusResponse>().await.map_err(|_| "Failed to parse response from OpenAI".to_string())?;
+            Ok(run_status_response.status)
+        }
+        Ok(res) => {
+            match res.text().await {
+                Ok(text) => Err(text),
+                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            }
+        }
+        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+    }
+}
 
 // check what is next to check for new messages and then return
 
