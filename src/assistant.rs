@@ -247,45 +247,146 @@ pub async fn create_assistant(
     })
 }
 
-/// check db_pool if thread_id exists for user_id
-/// if yes, return chat_id, if no, initialize chat, save user_id, chat_idto db table chats and return chat_id
-async fn initialize_chat() -> Result<String, String> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let response = client
-        .post("https://api.openai.com/v1/threads")
-        .header("Content-Type", "application/json")
-        .bearer_auth(&api_key)
-        .header("OpenAI-Beta", "assistants=v1")
-        .send()
-        .await;
-    // Correctly handle the Result returned by the reqwest call
-    match response {
-        Ok(res) if res.status().is_success() => match res.json::<serde_json::Value>().await {
-            Ok(create_chat_response) => {
-                if let Some(id) = create_chat_response["id"].as_str() {
-                    Ok(id.to_string())
-                } else {
-                    Err("Failed to extract chat ID from response".to_string())
+struct Chat{
+    id: String,
+    user_id: String,
+    messages: Vec<SimplifiedMessage>,
+}
+
+impl Chat {
+    /// Method to initialize a chat or retrieve an existing one
+    /// if yes, return chat_id, if no, initialize chat, save user_id, chat_idto db table chats and return chat_id
+    pub async fn initialize_chat(&mut self) -> Result<(), String> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let response = client
+            .post("https://api.openai.com/v1/threads")
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v1")
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => match res.json::<serde_json::Value>().await {
+                Ok(create_chat_response) => {
+                    if let Some(id) = create_chat_response["id"].as_str() {
+                        self.id = id.to_string();
+                        Ok(())
+                    } else {
+                        Err("Failed to extract chat ID from response".to_string())
+                    }
+                }
+                Err(_) => Err("Failed to parse response from OpenAI".to_string()),
+            },
+            Ok(res) => {
+                // The response is not successful, so we attempt to read the error message
+                match res.text().await {
+                    Ok(text) => Err(text),
+                    Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
                 }
             }
-            Err(_) => Err("Failed to parse response from OpenAI".to_string()),
-        },
-        Ok(res) => {
-            // The response is not successful, so we attempt to read the error message
-            match res.text().await {
-                Ok(text) => Err(text),
-                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            Err(e) => {
+                // The request itself failed, so we return the error
+                Err(format!("Failed to send request to OpenAI: {}", e))
             }
         }
-        Err(e) => {
-            // The request itself failed, so we return the error
-            Err(format!("Failed to send request to OpenAI: {}", e))
+    }
+
+    /// Retrieves a list of simplified messages for the chat.
+    /// Each message includes the `created_at` timestamp, `role`, and text content.
+    /// If `only_last` is true, only the last message is returned.
+    pub async fn list_messages(&mut self, only_last: bool) -> Result<(), String> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let response = client
+            .get(&format!(
+                "https://api.openai.com/v1/threads/{}/messages",
+                self.id
+            ))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v1")
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => {
+                let message_list_response = res
+                    .json::<MessageListResponse>()
+                    .await
+                    .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
+                let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
+                    .data
+                    .into_iter()
+                    .filter_map(|msg| {
+                        if let Some(content) =
+                            msg.content.into_iter().find(|c| c.content_type == "text")
+                        {
+                            if let Some(text_content) = content.text {
+                                return Some(SimplifiedMessage {
+                                    created_at: msg.created_at,
+                                    role: msg.role,
+                                    text: text_content.value,
+                                });
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+                if only_last {
+                    simplified_messages = simplified_messages.into_iter().rev().take(1).collect();
+                }
+                self.messages = simplified_messages;
+                Ok(())
+            }
+            Ok(res) => match res.text().await {
+                Ok(text) => Err(text),
+                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            },
+            Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+        }
+    }
+    /// Sends a message to the chat using the OpenAI API.
+    /// The `role` parameter typically is "user" or "system".
+    pub async fn add_message(&self, message: &str, role: &str) -> Result<(), String> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let payload = MessageContent {
+            role: role.to_string(),
+            content: message.to_string(),
+        };
+        let response = client
+            .post(&format!(
+                "https://api.openai.com/v1/threads/{}/messages",
+                self.id
+            ))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v1")
+            .json(&payload)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => Ok(()),
+            Ok(res) => match res.text().await {
+                Ok(text) => Err(text),
+                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            },
+            Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
         }
     }
 }
-async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<String, String> {
-    // First, attempt to fetch the chat ID from the database.
+
+
+//add a create_chat function that returns a chat struct
+// check the db for an existing chat_id for the user_id
+// if yes, return chat_id and initialize chat struct
+// if no, initialize chat struct, save user_id, chat_id to db table chats and return chat_id
+
+
+// add a DB struct here
+// it should have all the db related functions as methods
+/// get chat_id for a given user_id
+async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<Option<String>, String> {
     let result = sqlx::query!(
         "SELECT id FROM chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
         user_id
@@ -293,140 +394,22 @@ async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<String, Stri
     .fetch_optional(db_pool)
     .await
     .map_err(|e| format!("Database error: {}", e))?;
-    // Match on the Option to determine if a chat ID was found.
     match result {
-        Some(row) => {
-            // If a chat_id is found, return it.
-            Ok(row.id.to_string())
-        }
-        None => {
-            // If no chat_id is found, call the create_chat function to create a new chat.
-            let new_chat_id = initialize_chat()
-                .await
-                .map_err(|e| format!("Error creating chat: {}", e))?;
-            // Insert the new chat_id into the database.
-            sqlx::query!(
-                "INSERT INTO chats (id, user_id) VALUES (?, ?)",
-                new_chat_id,
-                user_id
-            )
-            .execute(db_pool)
-            .await
-            .map_err(|e| format!("Database error: {}", e))?;
-            // Return the new chat_id.
-            Ok(new_chat_id)
-        }
+        Some(row) => Ok(Some(row.id)),
+        None => Ok(None), // No chat ID found, return None
     }
 }
-/// Retrieves a list of simplified messages for a given chat thread from the OpenAI API.
-///
-/// Each message includes the `created_at` timestamp, `role`, and text content.
-///
-/// # Arguments
-///
-/// * `chat_id` - A string slice that holds the identifier of the chat thread.
-///
-/// # Returns
-///
-/// This function returns a `Result` which is either:
-/// - `Ok(Vec<SimplifiedMessage>)`: A vector of `SimplifiedMessage` structs representing the simplified messages.
-/// - `Err(String)`: An error message string indicating what went wrong during the operation.
-/// * `only_last` - A boolean flag indicating whether to return only the last message.
-///
-/// # Returns
-///
-/// This function returns a `Result` which is either:
-/// - `Ok(Vec<SimplifiedMessage>)`: A vector of `SimplifiedMessage` structs representing the simplified messages.
-/// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn list_messages(chat_id: &str, only_last: bool) -> Result<Vec<SimplifiedMessage>, String> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let response = client
-        .get(&format!(
-            "https://api.openai.com/v1/threads/{}/messages",
-            chat_id
-        ))
-        .header("Content-Type", "application/json")
-        .bearer_auth(&api_key)
-        .header("OpenAI-Beta", "assistants=v1")
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => {
-            let message_list_response = res
-                .json::<MessageListResponse>()
-                .await
-                .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
-            let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
-                .data
-                .into_iter()
-                .filter_map(|msg| {
-                    if let Some(content) =
-                        msg.content.into_iter().find(|c| c.content_type == "text")
-                    {
-                        if let Some(text_content) = content.text {
-                            return Some(SimplifiedMessage {
-                                created_at: msg.created_at,
-                                role: msg.role,
-                                text: text_content.value,
-                            });
-                        }
-                    }
-                    None
-                })
-                .collect();
-            if only_last {
-                simplified_messages = simplified_messages.into_iter().rev().take(1).collect();
-            }
-            Ok(simplified_messages)
-        }
-        Ok(res) => match res.text().await {
-            Ok(text) => Err(text),
-            Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
-        },
-        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
-    }
-}
-
-/// Sends a message to a given chat thread using the OpenAI API.
-///
-/// # Arguments
-///
-/// * `chat_id` - A string slice that holds the identifier of the chat thread.
-/// * `message` - The message content to be sent.
-/// * `role` - The role of the sender, typically "user" or "system".
-///
-/// # Returns
-///
-/// This function returns a `Result` which is either:
-/// - `Ok(())`: An empty tuple indicating the message was sent successfully.
-/// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn add_message(chat_id: &str, message: &str, role: &str) -> Result<(), String> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let payload = MessageContent {
-        role: role.to_string(),
-        content: message.to_string(),
-    };
-    let response = client
-        .post(&format!(
-            "https://api.openai.com/v1/threads/{}/messages",
-            chat_id
-        ))
-        .header("Content-Type", "application/json")
-        .bearer_auth(&api_key)
-        .header("OpenAI-Beta", "assistants=v1")
-        .json(&payload)
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => Ok(()),
-        Ok(res) => match res.text().await {
-            Ok(text) => Err(text),
-            Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
-        },
-        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
-    }
+/// Function to save the chat ID into the database
+async fn save_chat_id(db_pool: &SqlitePool, user_id: &str, chat_id: &str) -> Result<(), String> {
+    sqlx::query!(
+        "INSERT INTO chats (id, user_id) VALUES (?, ?)",
+        chat_id,
+        user_id
+    )
+    .execute(db_pool)
+    .await
+    .map_err(|e| format!("Database error: {}", e))?;
+    Ok(())
 }
 
 /// Saves a user's message to the database.
@@ -461,12 +444,16 @@ async fn save_message_to_db(
     Ok(())
 }
 
+struct Run{
+    id: String,
+    status: String,
+}
 
 /// Creates a run for a given thread and assistant.
 ///
 /// # Arguments
 ///
-/// * `thread_id` - The identifier of the chat thread.
+/// * `chat_id` - The identifier of the chat thread.
 /// * `assistant_id` - The identifier of the assistant.
 ///
 /// # Returns
@@ -474,7 +461,7 @@ async fn save_message_to_db(
 /// This function returns a `Result` which is either:
 /// - `Ok(String)`: The identifier of the created run.
 /// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn create_run(thread_id: &str, assistant_id: &str) -> Result<String, String> {
+async fn create_run(chat_id: &str, assistant_id: &str) -> Result<String, String> {
     let client = Client::new();
     let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
     let payload = json!({
@@ -483,7 +470,7 @@ async fn create_run(thread_id: &str, assistant_id: &str) -> Result<String, Strin
     let response = client
         .post(&format!(
             "https://api.openai.com/v1/threads/{}/runs",
-            thread_id
+            chat_id
         ))
         .header("Content-Type", "application/json")
         .bearer_auth(&api_key)
@@ -511,7 +498,7 @@ async fn create_run(thread_id: &str, assistant_id: &str) -> Result<String, Strin
 ///
 /// # Arguments
 ///
-/// * `thread_id` - The identifier of the chat thread.
+/// * `chat_id` - The identifier of the chat thread.
 /// * `run_id` - The identifier of the run.
 ///
 /// # Returns
@@ -519,13 +506,13 @@ async fn create_run(thread_id: &str, assistant_id: &str) -> Result<String, Strin
 /// This function returns a `Result` which is either:
 /// - `Ok(String)`: The status of the run.
 /// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn run_status(thread_id: &str, run_id: &str) -> Result<String, String> {
+async fn run_status(chat_id: &str, run_id: &str) -> Result<String, String> {
     let client = Client::new();
     let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
     let response = client
         .get(&format!(
             "https://api.openai.com/v1/threads/{}/runs/{}",
-            thread_id, run_id
+            chat_id, run_id
         ))
         .header("Authorization", format!("Bearer {}", api_key))
         .header("OpenAI-Beta", "assistants=v1")
