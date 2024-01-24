@@ -92,163 +92,127 @@ pub struct AssistantChatResponse {
     pub messages: Vec<SimplifiedMessage>,
 }
 
-
-
-///context.rs
-/// Scrapes a list of URLs and saves them as html files in the specified folder.
-pub async fn scrape_context(folder_path: &str, urls: Vec<String>) -> Result<(), String> {
-    let client = Client::new();
-    let folder_path = Path::new(folder_path);
-    // Create the folder if it does not exist
-    fs::create_dir_all(&folder_path).map_err(|e| e.to_string())?;
-    for url in urls {
-        let response = client.get(&url).send().await;
-        match response {
-            Ok(res) if res.status().is_success() => {
-                // Sanitize the file name by removing URL schemes and replacing slashes with underscores
-                let file_name = url
-                    .replace("https://", "")
-                    .replace("http://", "")
-                    .replace("/", "_");
-                let file_path = folder_path.join(format!("{}.html", file_name));
-                let html = res.text().await.map_err(|e| e.to_string())?;
-                fs::write(file_path, html).map_err(|e| e.to_string())?;
-            }
-            Ok(res) => {
-                return Err(res.text().await.map_err(|e| e.to_string())?);
-            }
-            Err(e) => {
-                return Err(e.to_string());
-            }
-        }
-    }
-    Ok(())
+/// A struct representing an OpenAI assistant.
+/// The tools are currently hardcoded as a code_interpreter.
+struct Assistant {
+    id: String,
+    name: String,
+    model: String,
+    instructions: String,
+    folder_path: String,
+    scrape_urls: Vec<String>,
 }
-
-/// Uploads a file to OpenAI and returns the file ID.
-async fn upload_file(file_path: &str) -> Result<String, String> {
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let client = Client::new();
-    let payload = json!({
-        "purpose": "assistants",
-        "file": file_path,
-    });
-    let response = client
-        .post("https://api.openai.com/v1/files")
-        .bearer_auth(&api_key)
-        .json(&payload)
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => match res.json::<FileUploadResponse>().await {
-            Ok(file_response) => Ok(file_response.id),
-            Err(_) => Err("Failed to parse response from OpenAI".to_string()),
-        },
-        Ok(res) => Err(res.text().await.unwrap_or_default()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-/// Attaches a list of file IDs to an assistant.
-async fn attach_files(assistant_id: &str, file_ids: Vec<String>) -> Result<(), String> {
-    let api_key = env::var("OPENAI_API_KEY").unwrap_or_default();
-    let client = Client::new();
-    for file_id in file_ids {
-        let payload = AttachFilesRequest { file_id };
+impl Assistant {
+    /// create an OpenAI assistant and set the assistant's ID
+    pub async fn initialize(&mut self) -> Result<(), String> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let payload = json!({
+            "instructions": self.instructions,
+            "name": self.name,
+            "tools": [{"type": "code_interpreter"}],
+            "model": self.model,
+        });
         let response = client
-            .post(format!(
-                "https://api.openai.com/v1/assistants/{}/files",
-                assistant_id
-            ))
+            .post("https://api.openai.com/v1/assistants")
             .bearer_auth(&api_key)
             .json(&payload)
             .send()
             .await;
-        if let Err(e) = response {
-            return Err(e.to_string());
+        match response {
+            Ok(res) if res.status().is_success() => match res.json::<serde_json::Value>().await {
+                Ok(assistant_response) => {
+                    if let Some(id) = assistant_response["id"].as_str() {
+                        self.id = id.to_string();
+                        Ok(())
+                    } else {
+                        Err("Failed to extract assistant ID from response".to_string())
+                    }
+                }
+                Err(_) => Err("Failed to parse response from OpenAI".to_string()),
+            },
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(error_message)
+            }
+            Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
         }
     }
-    Ok(())
-}
-
-/// Saves a user's message to the database.
-///
-/// # Arguments
-///
-/// * `db_pool` - A `SqlitePool` for database connectivity.
-/// * `chat_id` - The identifier of the chat thread.
-/// * `message` - The message content to be saved.
-///
-/// # Returns
-///
-/// This function returns a `Result` which is either:
-/// - `Ok(())`: An empty tuple indicating the message was saved successfully.
-/// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn save_message_to_db(
-    db_pool: &SqlitePool,
-    chat_id: &str,
-    message: &str,
-) -> Result<(), String> {
-    // Implement the logic to save the message to the database.
-    // This is a placeholder and should be replaced with actual database interaction code.
-    // For example:
-    sqlx::query!(
-        "INSERT INTO messages (chat_id, content) VALUES (?, ?)",
-        chat_id,
-        message
-    )
-    .execute(db_pool)
-    .await
-    .map_err(|e| format!("Database error: {}", e))?;
-    Ok(())
-}
-
-// Creates an OpenAI assistant with the specified name, model, and instructions. Tools are so far
-// hardcoded as a code_interpreter.
-///
-/// # Arguments
-/// * `assistant_name` - The name of the assistant to create.
-/// * `model` - The model to use for the assistant (e.g., "gpt-4").
-/// * `instructions` - The instructions for the assistant's behavior.
-///
-/// # Returns
-/// A `Result` containing either the assistant's ID on success or an error message on failure.
-async fn initialize_assistant(
-    assistant_name: &str,
-    model: &str,
-    instructions: &str,
-) -> Result<String, String> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let payload = json!({
-        "instructions": instructions,
-        "name": assistant_name,
-        "tools": [{"type": "code_interpreter"}],
-        "model": model,
-    });
-    let response = client
-        .post("https://api.openai.com/v1/assistants")
-        .bearer_auth(&api_key)
-        .json(&payload)
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => match res.json::<serde_json::Value>().await {
-            Ok(assistant_response) => {
-                if let Some(id) = assistant_response["id"].as_str() {
-                    Ok(id.to_string())
-                } else {
-                    Err("Failed to extract assistant ID from response".to_string())
+    /// scrape context from URLs and save them as HTML files
+    pub async fn scrape_context(&self) -> Result<(), String> {
+        let client = Client::new();
+        let folder_path = Path::new(&self.folder_path);
+        // Create the folder if it does not exist
+        fs::create_dir_all(&folder_path).map_err(|e| e.to_string())?;
+        for url in &self.scrape_urls {
+            let response = client.get(url).send().await;
+            match response {
+                Ok(res) if res.status().is_success() => {
+                    // Sanitize the file name by removing URL schemes and replacing slashes with underscores
+                    let file_name = url
+                        .replace("https://", "")
+                        .replace("http://", "")
+                        .replace("/", "_");
+                    let file_path = folder_path.join(format!("{}.html", file_name));
+                    let html = res.text().await.map_err(|e| e.to_string())?;
+                    fs::write(file_path, html).map_err(|e| e.to_string())?;
+                }
+                Ok(res) => {
+                    return Err(res.text().await.map_err(|e| e.to_string())?);
+                }
+                Err(e) => {
+                    return Err(e.to_string());
                 }
             }
-            Err(_) => Err("Failed to parse response from OpenAI".to_string()),
-        },
-        Ok(res) => {
-            let error_message = res.text().await.unwrap_or_default();
-            Err(error_message)
         }
-        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+        Ok(())
+    }
+    /// upload a file to OpenAI and return the file ID
+    pub async fn upload_file(&self, file_path: &str) -> Result<String, String> {
+        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let client = Client::new();
+        let payload = json!({
+            "purpose": "assistants",
+            "file": file_path,
+        });
+        let response = client
+            .post("https://api.openai.com/v1/files")
+            .bearer_auth(&api_key)
+            .json(&payload)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => match res.json::<FileUploadResponse>().await {
+                Ok(file_response) => Ok(file_response.id),
+                Err(_) => Err("Failed to parse response from OpenAI".to_string()),
+            },
+            Ok(res) => Err(res.text().await.unwrap_or_default()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+    /// attach a list of file IDs to the assistant
+    pub async fn attach_files(&self, file_ids: Vec<String>) -> Result<(), String> {
+        let api_key = env::var("OPENAI_API_KEY").unwrap_or_default();
+        let client = Client::new();
+        for file_id in file_ids {
+            let payload = AttachFilesRequest { file_id };
+            let response = client
+                .post(format!(
+                    "https://api.openai.com/v1/assistants/{}/files",
+                    self.id
+                ))
+                .bearer_auth(&api_key)
+                .json(&payload)
+                .send()
+                .await;
+            if let Err(e) = response {
+                return Err(e.to_string());
+            }
+        }
+        Ok(())
     }
 }
+
 
 /// Creates an OpenAI assistant with the specified name, model, instructions, and file path.
 /// All files in the specified directory will be uploaded and attached to the assistant.
@@ -257,12 +221,11 @@ pub async fn create_assistant(
     model: &str,
     instructions: &str,
     folder_path: &str,
-) -> Result<String, String> {
+) -> Result<Assistant, String> {
+    // Create the assistant using the OpenAI API
     let assistant_id = initialize_assistant(assistant_name, model, instructions).await?;
-
     // Read the directory contents
     let paths = fs::read_dir(Path::new(folder_path)).map_err(|e| e.to_string())?;
-
     // Iterate over each file and upload and attach it
     for path in paths {
         let path = path.map_err(|e| e.to_string())?.path();
@@ -273,8 +236,15 @@ pub async fn create_assistant(
             attach_files(&assistant_id, vec![file_id]).await?;
         }
     }
-
-    Ok(assistant_id)
+    // Return the created Assistant instance
+    Ok(Assistant {
+        id: assistant_id,
+        name: assistant_name.to_string(),
+        model: model.to_string(),
+        instructions: instructions.to_string(),
+        folder_path: folder_path.to_string(),
+        scrape_urls: Vec::new(), // Initialize with an empty vector or populate as needed
+    })
 }
 
 /// check db_pool if thread_id exists for user_id
@@ -458,6 +428,39 @@ async fn add_message(chat_id: &str, message: &str, role: &str) -> Result<(), Str
         Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
     }
 }
+
+/// Saves a user's message to the database.
+///
+/// # Arguments
+///
+/// * `db_pool` - A `SqlitePool` for database connectivity.
+/// * `chat_id` - The identifier of the chat thread.
+/// * `message` - The message content to be saved.
+///
+/// # Returns
+///
+/// This function returns a `Result` which is either:
+/// - `Ok(())`: An empty tuple indicating the message was saved successfully.
+/// - `Err(String)`: An error message string indicating what went wrong during the operation.
+async fn save_message_to_db(
+    db_pool: &SqlitePool,
+    chat_id: &str,
+    message: &str,
+) -> Result<(), String> {
+    // Implement the logic to save the message to the database.
+    // This is a placeholder and should be replaced with actual database interaction code.
+    // For example:
+    sqlx::query!(
+        "INSERT INTO messages (chat_id, content) VALUES (?, ?)",
+        chat_id,
+        message
+    )
+    .execute(db_pool)
+    .await
+    .map_err(|e| format!("Database error: {}", e))?;
+    Ok(())
+}
+
 
 /// Creates a run for a given thread and assistant.
 ///
