@@ -43,16 +43,21 @@ async fn main() {
         .unwrap();
 }
 
-
-
 #[tokio::main]
 async fn main() {
-    match create_assistant("My Assistant", "gpt-4", "Your instructions here", "path/to/folder").await {
+    match create_assistant(
+        "My Assistant",
+        "gpt-4",
+        "Your instructions here",
+        "path/to/folder",
+    )
+    .await
+    {
         Ok(assistant) => {
             // Assistant created successfully, use the assistant object here
-        },
+        }
         Err(e) => {
             // Handle error
-        },
+        }
     }
 }

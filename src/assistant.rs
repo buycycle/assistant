@@ -15,6 +15,14 @@ use log::{error, info};
 use serde_json::json;
 use std::env;
 
+
+
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePool},
+    Error,
+};
+
+
 // Define the response type for the JSON response.
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -106,7 +114,8 @@ impl Assistant {
     /// create an OpenAI assistant and set the assistant's ID
     pub async fn initialize(&mut self) -> Result<(), String> {
         let client = Client::new();
-        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
         let payload = json!({
             "instructions": self.instructions,
             "name": self.name,
@@ -169,7 +178,8 @@ impl Assistant {
     }
     /// upload a file to OpenAI and return the file ID
     pub async fn upload_file(&self, file_path: &str) -> Result<String, String> {
-        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
         let client = Client::new();
         let payload = json!({
             "purpose": "assistants",
@@ -213,7 +223,6 @@ impl Assistant {
     }
 }
 
-
 /// Creates an OpenAI assistant with the specified name, model, instructions, and file path.
 /// All files in the specified directory will be uploaded and attached to the assistant.
 pub async fn create_assistant(
@@ -223,7 +232,7 @@ pub async fn create_assistant(
     folder_path: &str,
 ) -> Result<Assistant, String> {
     // Create the assistant using the OpenAI API
-    let assistant_id = initialize_assistant(assistant_name, model, instructions).await?;
+    let assistant_id = initialize(assistant_name, model, instructions).await?;
     // Read the directory contents
     let paths = fs::read_dir(Path::new(folder_path)).map_err(|e| e.to_string())?;
     // Iterate over each file and upload and attach it
@@ -247,7 +256,7 @@ pub async fn create_assistant(
     })
 }
 
-struct Chat{
+struct Chat {
     id: String,
     user_id: String,
     messages: Vec<SimplifiedMessage>,
@@ -256,9 +265,10 @@ struct Chat{
 impl Chat {
     /// Method to initialize a chat or retrieve an existing one
     /// if yes, return chat_id, if no, initialize chat, save user_id, chat_idto db table chats and return chat_id
-    pub async fn initialize_chat(&mut self) -> Result<(), String> {
+    pub async fn initialize(&mut self) -> Result<(), String> {
         let client = Client::new();
-        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
         let response = client
             .post("https://api.openai.com/v1/threads")
             .header("Content-Type", "application/json")
@@ -282,7 +292,9 @@ impl Chat {
                 // The response is not successful, so we attempt to read the error message
                 match res.text().await {
                     Ok(text) => Err(text),
-                    Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+                    Err(_) => {
+                        Err("Failed to read error message from OpenAI API response".to_string())
+                    }
                 }
             }
             Err(e) => {
@@ -297,7 +309,8 @@ impl Chat {
     /// If `only_last` is true, only the last message is returned.
     pub async fn list_messages(&mut self, only_last: bool) -> Result<(), String> {
         let client = Client::new();
-        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
         let response = client
             .get(&format!(
                 "https://api.openai.com/v1/threads/{}/messages",
@@ -349,7 +362,8 @@ impl Chat {
     /// The `role` parameter typically is "user" or "system".
     pub async fn add_message(&self, message: &str, role: &str) -> Result<(), String> {
         let client = Client::new();
-        let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
         let payload = MessageContent {
             role: role.to_string(),
             content: message.to_string(),
@@ -376,16 +390,23 @@ impl Chat {
     }
 }
 
-
 //add a create_chat function that returns a chat struct
 // check the db for an existing chat_id for the user_id
 // if yes, return chat_id and initialize chat struct
 // if no, initialize chat struct, save user_id, chat_id to db table chats and return chat_id
 
-
 // add a DB struct here
 // it should have all the db related functions as methods
 /// get chat_id for a given user_id
+pub async fn create_db_pool(database_url: &str) -> Result<SqlitePool, Error> {
+// Remove the `sqlite:` scheme from the `database_url` if it's present
+    let connect_options = SqliteConnectOptions::from_str(database_url)?
+        .create_if_missing(true)
+        .to_owned();
+    let pool = SqlitePool::connect_with(connect_options).await?;
+    Ok(pool)
+}
+
 async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<Option<String>, String> {
     let result = sqlx::query!(
         "SELECT id FROM chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
@@ -444,24 +465,13 @@ async fn save_message_to_db(
     Ok(())
 }
 
-struct Run{
+struct Run {
     id: String,
     status: String,
 }
 
-/// Creates a run for a given thread and assistant.
-///
-/// # Arguments
-///
-/// * `chat_id` - The identifier of the chat thread.
-/// * `assistant_id` - The identifier of the assistant.
-///
-/// # Returns
-///
-/// This function returns a `Result` which is either:
-/// - `Ok(String)`: The identifier of the created run.
-/// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn create_run(chat_id: &str, assistant_id: &str) -> Result<String, String> {
+/// Creates a run for a given thread and assistant and assigns the ID and status to the struct.
+pub async fn create(&mut self, chat_id: &str, assistant_id: &str) -> Result<(), String> {
     let client = Client::new();
     let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
     let payload = json!({
@@ -484,55 +494,49 @@ async fn create_run(chat_id: &str, assistant_id: &str) -> Result<String, String>
                 .json::<RunResponse>()
                 .await
                 .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
-            Ok(run_response.id)
+            // Assign the ID and status to the struct
+            self.id = run_response.id;
+            self.status = run_response.status;
+            Ok(())
         }
         Ok(res) => match res.text().await {
             Ok(text) => Err(text),
             Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
         },
         Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+    }
+
+    /// Retrieves the status of the run for the given thread.
+    pub async fn status(&self, chat_id: &str) -> Result<String, String> {
+        let client = Client::new();
+        let api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let response = client
+            .get(&format!(
+                "https://api.openai.com/v1/threads/{}/runs/{}",
+                chat_id, self.id
+            ))
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("OpenAI-Beta", "assistants=v1")
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => {
+                let run_status_response = res
+                    .json::<RunStatusResponse>()
+                    .await
+                    .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
+                Ok(run_status_response.status)
+            }
+            Ok(res) => match res.text().await {
+                Ok(text) => Err(text),
+                Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
+            },
+            Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+        }
     }
 }
 
-/// Retrieves the status of a run for a given thread.
-///
-/// # Arguments
-///
-/// * `chat_id` - The identifier of the chat thread.
-/// * `run_id` - The identifier of the run.
-///
-/// # Returns
-///
-/// This function returns a `Result` which is either:
-/// - `Ok(String)`: The status of the run.
-/// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn run_status(chat_id: &str, run_id: &str) -> Result<String, String> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let response = client
-        .get(&format!(
-            "https://api.openai.com/v1/threads/{}/runs/{}",
-            chat_id, run_id
-        ))
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("OpenAI-Beta", "assistants=v1")
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => {
-            let run_status_response = res
-                .json::<RunStatusResponse>()
-                .await
-                .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
-            Ok(run_status_response.status)
-        }
-        Ok(res) => match res.text().await {
-            Ok(text) => Err(text),
-            Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
-        },
-        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
-    }
-}
 
 // think about websockets here
 /// Handles chat interactions with an OpenAI assistant.
