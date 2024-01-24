@@ -15,13 +15,10 @@ use log::{error, info};
 use serde_json::json;
 use std::env;
 
-
-
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool},
     Error,
 };
-
 
 // Define the response type for the JSON response.
 #[derive(Serialize)]
@@ -395,74 +392,54 @@ impl Chat {
 // if yes, return chat_id and initialize chat struct
 // if no, initialize chat struct, save user_id, chat_id to db table chats and return chat_id
 
-// add a DB struct here
-// it should have all the db related functions as methods
-/// get chat_id for a given user_id
-pub async fn create_db_pool(database_url: &str) -> Result<SqlitePool, Error> {
-// Remove the `sqlite:` scheme from the `database_url` if it's present
-    let connect_options = SqliteConnectOptions::from_str(database_url)?
-        .create_if_missing(true)
-        .to_owned();
-    let pool = SqlitePool::connect_with(connect_options).await?;
-    Ok(pool)
-}
-
-async fn get_chat_id(db_pool: &SqlitePool, user_id: &str) -> Result<Option<String>, String> {
-    let result = sqlx::query!(
-        "SELECT id FROM chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
-        user_id
-    )
-    .fetch_optional(db_pool)
-    .await
-    .map_err(|e| format!("Database error: {}", e))?;
-    match result {
-        Some(row) => Ok(Some(row.id)),
-        None => Ok(None), // No chat ID found, return None
+impl DB {
+    /// Creates a new database connection pool.
+    pub async fn create_db_pool(database_url: &str) -> Result<Self, Error> {
+        // Remove the `sqlite:` scheme from the `database_url` if it's present
+        let connect_options = SqliteConnectOptions::from_str(database_url)?
+            .create_if_missing(true)
+            .to_owned();
+        let pool = SqlitePool::connect_with(connect_options).await?;
+        Ok(DB { pool })
     }
-}
-/// Function to save the chat ID into the database
-async fn save_chat_id(db_pool: &SqlitePool, user_id: &str, chat_id: &str) -> Result<(), String> {
-    sqlx::query!(
-        "INSERT INTO chats (id, user_id) VALUES (?, ?)",
-        chat_id,
-        user_id
-    )
-    .execute(db_pool)
-    .await
-    .map_err(|e| format!("Database error: {}", e))?;
-    Ok(())
-}
-
-/// Saves a user's message to the database.
-///
-/// # Arguments
-///
-/// * `db_pool` - A `SqlitePool` for database connectivity.
-/// * `chat_id` - The identifier of the chat thread.
-/// * `message` - The message content to be saved.
-///
-/// # Returns
-///
-/// This function returns a `Result` which is either:
-/// - `Ok(())`: An empty tuple indicating the message was saved successfully.
-/// - `Err(String)`: An error message string indicating what went wrong during the operation.
-async fn save_message_to_db(
-    db_pool: &SqlitePool,
-    chat_id: &str,
-    message: &str,
-) -> Result<(), String> {
-    // Implement the logic to save the message to the database.
-    // This is a placeholder and should be replaced with actual database interaction code.
-    // For example:
-    sqlx::query!(
-        "INSERT INTO messages (chat_id, content) VALUES (?, ?)",
-        chat_id,
-        message
-    )
-    .execute(db_pool)
-    .await
-    .map_err(|e| format!("Database error: {}", e))?;
-    Ok(())
+    /// Gets the chat ID for a given user ID.
+    pub async fn get_chat_id(&self, user_id: &str) -> Result<Option<String>, String> {
+        let result = sqlx::query!(
+            "SELECT id FROM chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+            user_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+        match result {
+            Some(row) => Ok(Some(row.id)),
+            None => Ok(None), // No chat ID found, return None
+        }
+    }
+    /// Saves the chat ID into the database.
+    pub async fn save_chat_id(&self, user_id: &str, chat_id: &str) -> Result<(), String> {
+        sqlx::query!(
+            "INSERT INTO chats (id, user_id) VALUES (?, ?)",
+            chat_id,
+            user_id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+        Ok(())
+    }
+    /// Saves a user's message to the database.
+    pub async fn save_message_to_db(&self, chat_id: &str, message: &str) -> Result<(), String> {
+        sqlx::query!(
+            "INSERT INTO messages (chat_id, content) VALUES (?, ?)",
+            chat_id,
+            message
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+        Ok(())
+    }
 }
 
 struct Run {
@@ -470,63 +447,36 @@ struct Run {
     status: String,
 }
 
-/// Creates a run for a given thread and assistant and assigns the ID and status to the struct.
-pub async fn create(&mut self, chat_id: &str, assistant_id: &str) -> Result<(), String> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
-    let payload = json!({
-        "assistant_id": assistant_id,
-    });
-    let response = client
-        .post(&format!(
-            "https://api.openai.com/v1/threads/{}/runs",
-            chat_id
-        ))
-        .header("Content-Type", "application/json")
-        .bearer_auth(&api_key)
-        .header("OpenAI-Beta", "assistants=v1")
-        .json(&payload)
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => {
-            let run_response = res
-                .json::<RunResponse>()
-                .await
-                .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
-            // Assign the ID and status to the struct
-            self.id = run_response.id;
-            self.status = run_response.status;
-            Ok(())
-        }
-        Ok(res) => match res.text().await {
-            Ok(text) => Err(text),
-            Err(_) => Err("Failed to read error message from OpenAI API response".to_string()),
-        },
-        Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
-    }
-
-    /// Retrieves the status of the run for the given thread.
-    pub async fn status(&self, chat_id: &str) -> Result<String, String> {
+impl Run {
+    /// Creates a run for a given thread and assistant and assigns the ID and status to the struct.
+    pub async fn create(&mut self, chat_id: &str, assistant_id: &str) -> Result<(), String> {
         let client = Client::new();
         let api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        let payload = json!({
+            "assistant_id": assistant_id,
+        });
         let response = client
-            .get(&format!(
-                "https://api.openai.com/v1/threads/{}/runs/{}",
-                chat_id, self.id
+            .post(&format!(
+                "https://api.openai.com/v1/threads/{}/runs",
+                chat_id
             ))
-            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
             .header("OpenAI-Beta", "assistants=v1")
+            .json(&payload)
             .send()
             .await;
         match response {
             Ok(res) if res.status().is_success() => {
-                let run_status_response = res
-                    .json::<RunStatusResponse>()
+                let run_response = res
+                    .json::<RunResponse>()
                     .await
                     .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
-                Ok(run_status_response.status)
+                // Assign the ID and status to the struct
+                self.id = run_response.id;
+                self.status = run_response.status;
+                Ok(())
             }
             Ok(res) => match res.text().await {
                 Ok(text) => Err(text),
@@ -534,9 +484,40 @@ pub async fn create(&mut self, chat_id: &str, assistant_id: &str) -> Result<(), 
             },
             Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
         }
+
+        /// Retrieves the status of the run for the given thread.
+        pub async fn status(&self, chat_id: &str) -> Result<String, String> {
+            let client = Client::new();
+            let api_key =
+                env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+            let response = client
+                .get(&format!(
+                    "https://api.openai.com/v1/threads/{}/runs/{}",
+                    chat_id, self.id
+                ))
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("OpenAI-Beta", "assistants=v1")
+                .send()
+                .await;
+            match response {
+                Ok(res) if res.status().is_success() => {
+                    let run_status_response = res
+                        .json::<RunStatusResponse>()
+                        .await
+                        .map_err(|_| "Failed to parse response from OpenAI".to_string())?;
+                    Ok(run_status_response.status)
+                }
+                Ok(res) => match res.text().await {
+                    Ok(text) => Err(text),
+                    Err(_) => {
+                        Err("Failed to read error message from OpenAI API response".to_string())
+                    }
+                },
+                Err(e) => Err(format!("Failed to send request to OpenAI: {}", e)),
+            }
+        }
     }
 }
-
 
 // think about websockets here
 /// Handles chat interactions with an OpenAI assistant.
