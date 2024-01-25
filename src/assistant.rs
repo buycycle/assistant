@@ -591,8 +591,8 @@ impl Run {
 /// conversation history including the assistant's response.
 pub async fn assistant_chat_handler(
     Extension(db_pool): Extension<SqlitePool>,
+    Extension(assistant_id): Extension<String>, // Add this line to get the assistant ID
     Json(assistant_chat_request): Json<AssistantChatRequest>,
-    assistant_id: &str, // This should be provided to the function or retrieved from the environment/config
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
     let db = DB { pool: db_pool };
     let user_id = &assistant_chat_request.user_id;
