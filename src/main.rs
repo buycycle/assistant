@@ -1,10 +1,10 @@
-use assistant::{create_assistant, AssistantError};
+use assistant::create_assistant;
+use assistant::{assistant_chat_handler, DB};
 use axum::{extract::Extension, routing::post, Router};
-use chat_handlers::{assistant_chat_handler, create_db_pool};
 use dotenv::dotenv;
 use sqlx::SqlitePool;
 mod assistant;
-mod chat_handlers;
+// Define a function to create the Axum app with the database pool and assistant.
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
     Router::new()
@@ -32,12 +32,13 @@ async fn main() {
         }
     };
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let db_pool = create_db_pool(&database_url)
+    let db = DB::create_db_pool(&database_url)
         .await
         .expect("Failed to create database pool");
-    // Run database migrations here if necessary
-    // sqlx::migrate!("./migrations").run(&db_pool).await.expect("Failed to run database migrations");
-    // Bind the server to an address and start it.
+    let db_pool = db.pool; // Extract the SqlitePool from the DB struct
+                           // Run database migrations here if necessary
+                           // sqlx::migrate!("./migrations").run(&db_pool).await.expect("Failed to run database migrations");
+                           // Bind the server to an address and start it.
     let server = tokio::net::TcpListener::bind(&"0.0.0.0:3000")
         .await
         .unwrap();
@@ -46,4 +47,3 @@ async fn main() {
         .await
         .unwrap();
 }
-
