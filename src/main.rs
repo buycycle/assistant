@@ -21,7 +21,7 @@ async fn main() {
         "My Assistant",
         "gpt-4",
         "Your instructions here",
-        "path/to/folder",
+        "context",
     )
     .await
     {
