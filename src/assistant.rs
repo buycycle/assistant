@@ -1,11 +1,13 @@
-use std::fs;
+use std::{fs, panic::AssertUnwindSafe};
 use std::iter::Extend;
 use std::path::Path;
 
-use axum::{response::IntoResponse, Extension, Json};
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool},
-    Error,
+
+use axum::{
+    response::{IntoResponse, Response},
+    Extension,
+    http::StatusCode,
+    Json,
 };
 
 use reqwest::Client;
@@ -19,6 +21,29 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePool},
     Error,
 };
+
+// Define a custom error type that can be converted into an HTTP response.
+#[derive(Debug)]
+enum AssistantError {
+    DatabaseError(String),
+    OpenAIError(String),
+}
+impl IntoResponse for AssistantError {
+    fn into_response(self) -> Response {
+        let (status, error_message) = match &self {
+            AssistantError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            AssistantError::OpenAIError(msg) => (StatusCode::BAD_GATEWAY, msg),
+        };
+        let body = Json(json!({ "error": error_message }));
+        (status, body).into_response()
+    }
+}
+// Convert sqlx::Error into AssistantError, preserving the error message
+impl From<sqlx::Error> for AssistantError {
+    fn from(e: sqlx::Error) -> Self {
+        AssistantError::DatabaseError(e.to_string())
+    }
+}
 
 // Define the response type for the JSON response.
 #[derive(Serialize)]
@@ -109,7 +134,7 @@ struct Assistant {
 }
 impl Assistant {
     /// create an OpenAI assistant and set the assistant's ID
-    pub async fn initialize(&mut self) -> Result<(), String> {
+    pub async fn initialize(&mut self) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
@@ -145,7 +170,7 @@ impl Assistant {
         }
     }
     /// scrape context from URLs and save them as HTML files
-    pub async fn scrape_context(&self) -> Result<(), String> {
+    pub async fn scrape_context(&self) -> Result<(), AssistantError> {
         let client = Client::new();
         let folder_path = Path::new(&self.folder_path);
         // Create the folder if it does not exist
@@ -174,7 +199,7 @@ impl Assistant {
         Ok(())
     }
     /// upload a file to OpenAI and return the file ID
-    pub async fn upload_file(&self, file_path: &str) -> Result<String, String> {
+    pub async fn upload_file(&self, file_path: &str) -> Result<String, AssistantError> {
         let api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
         let client = Client::new();
@@ -198,7 +223,7 @@ impl Assistant {
         }
     }
     /// attach a list of file IDs to the assistant
-    pub async fn attach_files(&self, file_ids: Vec<String>) -> Result<(), String> {
+    pub async fn attach_files(&self, file_ids: Vec<String>) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY").unwrap_or_default();
         let client = Client::new();
         for file_id in file_ids {
@@ -262,7 +287,7 @@ struct Chat {
 impl Chat {
     /// Method to initialize a chat or retrieve an existing one
     /// if yes, return chat_id, if no, initialize chat, save user_id, chat_idto db table chats and return chat_id
-    pub async fn initialize(&mut self) -> Result<(), String> {
+    pub async fn initialize(&mut self) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
@@ -304,7 +329,7 @@ impl Chat {
     /// Retrieves a list of simplified messages for the chat.
     /// Each message includes the `created_at` timestamp, `role`, and text content.
     /// If `only_last` is true, only the last message is returned.
-    pub async fn list_messages(&mut self, only_last: bool) -> Result<(), String> {
+    pub async fn list_messages(&mut self, only_last: bool) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
@@ -357,7 +382,7 @@ impl Chat {
     }
     /// Sends a message to the chat using the OpenAI API.
     /// The `role` parameter typically is "user" or "system".
-    pub async fn add_message(&self, message: &str, role: &str) -> Result<(), String> {
+    pub async fn add_message(&self, message: &str, role: &str) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
@@ -394,7 +419,7 @@ impl Chat {
 
 impl DB {
     /// Creates a new database connection pool.
-    pub async fn create_db_pool(database_url: &str) -> Result<Self, Error> {
+    pub async fn create_db_pool(database_url: &str) -> Result<Self, AssistantError> {
         // Remove the `sqlite:` scheme from the `database_url` if it's present
         let connect_options = SqliteConnectOptions::from_str(database_url)?
             .create_if_missing(true)
@@ -403,7 +428,7 @@ impl DB {
         Ok(DB { pool })
     }
     /// Gets the chat ID for a given user ID.
-    pub async fn get_chat_id(&self, user_id: &str) -> Result<Option<String>, String> {
+    pub async fn get_chat_id(&self, user_id: &str) -> Result<Option<String>, AssertUnwindSafe<>> {
         let result = sqlx::query!(
             "SELECT id FROM chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
             user_id
@@ -417,7 +442,7 @@ impl DB {
         }
     }
     /// Saves the chat ID into the database.
-    pub async fn save_chat_id(&self, user_id: &str, chat_id: &str) -> Result<(), String> {
+    pub async fn save_chat_id(&self, user_id: &str, chat_id: &str) -> Result<(), AssistantError> {
         sqlx::query!(
             "INSERT INTO chats (id, user_id) VALUES (?, ?)",
             chat_id,
@@ -429,7 +454,7 @@ impl DB {
         Ok(())
     }
     /// Saves a user's message to the database.
-    pub async fn save_message_to_db(&self, chat_id: &str, message: &str) -> Result<(), String> {
+    pub async fn save_message_to_db(&self, chat_id: &str, message: &str) -> Result<(), AssistantError> {
         sqlx::query!(
             "INSERT INTO messages (chat_id, content) VALUES (?, ?)",
             chat_id,
@@ -449,7 +474,7 @@ struct Run {
 
 impl Run {
     /// Creates a run for a given thread and assistant and assigns the ID and status to the struct.
-    pub async fn create(&mut self, chat_id: &str, assistant_id: &str) -> Result<(), String> {
+    pub async fn create(&mut self, chat_id: &str, assistant_id: &str) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
@@ -486,7 +511,7 @@ impl Run {
         }
 
         /// Retrieves the status of the run for the given thread.
-        pub async fn status(&self, chat_id: &str) -> Result<String, String> {
+        pub async fn status(&self, chat_id: &str) -> Result<String, AssistantError> {
             let client = Client::new();
             let api_key =
                 env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
@@ -518,15 +543,13 @@ impl Run {
         }
     }
 }
-
 // think about websockets here
 /// Handles chat interactions with an OpenAI assistant.
 ///
 /// This function manages the chat initialization, message sending, and response retrieval.
-/// It initializes a chat or retrieves an existing chat_id, savesthe user's message to the db,
-/// sends the message to the chat,
-/// creates a run for the assistant to process the message, waits for its completion
-/// and retrieves the assistant's response.
+/// It initializes a chat or retrieves an existing chat_id, saves the user's message to the db,
+/// sends the message to the chat, creates a run for the assistant to process the message,
+/// waits for its completion, and retrieves the assistant's response.
 ///
 /// # Arguments
 ///
@@ -542,76 +565,55 @@ pub async fn assistant_chat_handler(
     Extension(db_pool): Extension<SqlitePool>,
     Json(assistant_chat_request): Json<AssistantChatRequest>,
     assistant_id: &str, // This should be provided to the function or retrieved from the environment/config
-) -> impl IntoResponse {
-    let user_id = assistant_chat_request.user_id;
-    let message = assistant_chat_request.message;
+) -> Result<Json<AssistantChatResponse>, AssistantError> {
+    let db = DB { pool: db_pool };
+    let user_id = &assistant_chat_request.user_id;
+    let message = &assistant_chat_request.message;
     // Initialize chat or get existing chat_id
-    let chat_id = match get_chat_id(&db_pool, &user_id).await {
-        Ok(chat_id) => chat_id,
-        Err(e) => {
-            error!("Failed to initialize or retrieve chat: {}", e);
-            return Json(AssistantChatResponse { messages: vec![] });
-        }
-    };
+    let chat_id = db.get_chat_id(user_id).await?.unwrap_or_else(|| {
+        let mut chat = Chat {
+            id: String::new(),
+            user_id: user_id.to_string(),
+            messages: Vec::new(),
+        };
+        chat.initialize().await?;
+        db.save_chat_id(user_id, &chat.id).await?;
+        chat.id
+    });
     // Save the user's message to the database
-    if let Err(e) = save_message_to_db(&db_pool, &chat_id, &message).await {
-        error!("Failed to save user message to database: {}", e);
-        // Decide how to handle the error, e.g., return an error response or continue processing
-    }
-    // Retrieve the full conversation history
-    let history = match list_messages(&chat_id, false).await {
-        Ok(messages) => messages,
-        Err(e) => {
-            error!("Failed to retrieve conversation history: {}", e);
-            return Json(AssistantChatResponse { messages: vec![] });
-        }
+    db.save_message_to_db(&chat_id, message).await?;
+    // Initialize the chat struct
+    let mut chat = Chat {
+        id: chat_id,
+        user_id: user_id.to_string(),
+        messages: Vec::new(),
     };
     // Send the user's message to the chat
-    if let Err(e) = add_message(&chat_id, &message, "user").await {
-        error!("Failed to send message to chat: {}", e);
-        return Json(AssistantChatResponse { messages: history });
-    }
+    chat.add_message(message, "user").await?;
     // Create a run for the assistant to process the message
-    let run_id = match create_run(&chat_id, assistant_id).await {
-        Ok(run_id) => run_id,
-        Err(e) => {
-            error!("Failed to create run: {}", e);
-            return Json(AssistantChatResponse { messages: history });
-        }
+    let mut run = Run {
+        id: String::new(),
+        status: String::new(),
     };
+    run.create(&chat.id, assistant_id).await?;
     // Check the status of the run until it's completed or a timeout occurs
-    let mut status = String::new();
     let start_time = std::time::Instant::now();
     while start_time.elapsed().as_secs() < 10 {
-        match run_status(&chat_id, &run_id).await {
-            Ok(run_status) => {
-                status = run_status;
-                if status == "completed" {
-                    break;
-                }
-            }
-            Err(e) => {
-                error!("Failed to check run status: {}", e);
-                return Json(AssistantChatResponse { messages: history });
-            }
+        let status = run.status(&chat.id).await?;
+        if status == "completed" {
+            break;
         }
         // Sleep for a short duration before checking the status again
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
-    if status != "completed" {
-        error!("Run did not complete in time");
-        return Json(AssistantChatResponse { messages: history });
+    if run.status != "completed" {
+        return Err(AssistantError::OpenAIError("Run did not complete in time".to_string()));
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
-    let last_message = match list_messages(&chat_id, true).await {
-        Ok(messages) => messages,
-        Err(e) => {
-            error!("Failed to retrieve last message: {}", e);
-            return Json(AssistantChatResponse { messages: history });
-        }
-    };
+    chat.list_messages(true).await?;
     // Return the updated conversation history including the assistant's response
-    Json(AssistantChatResponse {
-        messages: [history, last_message].concat(),
-    })
+    Ok(Json(AssistantChatResponse {
+        messages: chat.messages,
+    }))
 }
+
