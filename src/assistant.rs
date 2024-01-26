@@ -7,7 +7,7 @@ use axum::{
     Extension, Json,
 };
 
-use reqwest::{Client, multipart::Form};
+use reqwest::{Client, multipart::Form, multipart::Part};
 use serde::{Deserialize, Serialize};
 
 use serde_json::json;
@@ -38,6 +38,12 @@ impl From<sqlx::Error> for AssistantError {
     }
 }
 
+// Implement From<reqwest::Error> for AssistantError
+impl From<reqwest::Error> for AssistantError {
+    fn from(err: reqwest::Error) -> Self {
+        AssistantError::OpenAIError(err.to_string())
+    }
+}
 // Define the response type for the file upload response.
 #[derive(Deserialize)]
 struct FileUploadResponse {
@@ -211,9 +217,23 @@ impl Assistant {
                 .map_err(|e| AssistantError::DatabaseError(e.to_string()))?
                 .path();
             if path.is_file() {
-                let form = reqwest::multipart::Form::new()
-                    .file("file", path.to_str().unwrap())
+                // Read the file content into memory
+                let file_content = fs::read(&path)
                     .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+                // Get the file name as an owned String
+                let file_name = path
+                    .file_name()
+                    .ok_or_else(|| AssistantError::OpenAIError("Failed to get file name".to_string()))?
+                    .to_str()
+                    .ok_or_else(|| AssistantError::OpenAIError("Failed to convert file name to string".to_string()))?
+                    .to_owned();
+                // Create a Part from the file content
+                let part = Part::bytes(file_content)
+                    .file_name(file_name) // Set the file name for the part
+                    .mime_str("application/octet-stream")?; // Set the MIME type for the part
+                // Create a Form and add the Part to it
+                let form = Form::new().part("file", part);
+                // Send the multipart form as the body of a POST request
                 let response = client
                     .post("https://api.openai.com/v1/files")
                     .header("OpenAI-Beta", "assistants=v1")
