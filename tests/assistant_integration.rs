@@ -1,8 +1,8 @@
 use axum::{routing::post, Router};
+use rust_bot::assistant::{assistant_chat_handler, create_assistant, DB};
 use sqlx::{Executor, SqlitePool};
 use std::net::SocketAddr;
 use tokio::sync::oneshot;
-use rust_bot::assistant::{create_assistant, assistant_chat_handler, DB};
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
     // ... (same as in your main file)
@@ -50,4 +50,3 @@ async fn test_chat_endpoint() {
     tx.send(()).unwrap();
     server.await.unwrap();
 }
-

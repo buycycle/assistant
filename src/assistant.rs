@@ -7,7 +7,7 @@ use axum::{
     Extension, Json,
 };
 
-use reqwest::{Client, multipart::Form, multipart::Part};
+use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
 
 use serde_json::json;
@@ -218,20 +218,26 @@ impl Assistant {
                 .path();
             if path.is_file() {
                 // Read the file content into memory
-                let file_content = fs::read(&path)
-                    .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+                let file_content =
+                    fs::read(&path).map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
                 // Get the file name as an owned String
                 let file_name = path
                     .file_name()
-                    .ok_or_else(|| AssistantError::OpenAIError("Failed to get file name".to_string()))?
+                    .ok_or_else(|| {
+                        AssistantError::OpenAIError("Failed to get file name".to_string())
+                    })?
                     .to_str()
-                    .ok_or_else(|| AssistantError::OpenAIError("Failed to convert file name to string".to_string()))?
+                    .ok_or_else(|| {
+                        AssistantError::OpenAIError(
+                            "Failed to convert file name to string".to_string(),
+                        )
+                    })?
                     .to_owned();
                 // Create a Part from the file content
                 let part = Part::bytes(file_content)
                     .file_name(file_name) // Set the file name for the part
                     .mime_str("application/octet-stream")?; // Set the MIME type for the part
-                // Create a Form and add the Part to it
+                                                            // Create a Form and add the Part to it
                 let form = Form::new().part("file", part);
                 // Send the multipart form as the body of a POST request
                 let response = client

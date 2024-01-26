@@ -1,4 +1,4 @@
-use rust_bot::assistant::{create_assistant, assistant_chat_handler, DB};
+use rust_bot::assistant::{assistant_chat_handler, create_assistant, DB};
 use sqlx::{Executor, SqlitePool};
 async fn setup_test_db() -> SqlitePool {
     let database_url = "sqlite::memory:";
@@ -18,7 +18,7 @@ async fn test_create_assistant() {
     )
     .await;
     assert!(result.is_ok()); // Use assert! to check if the result is Ok
-    // Optionally, check if the assistant was correctly inserted into the database.
+                             // Optionally, check if the assistant was correctly inserted into the database.
     let assistant_id = result.unwrap().id;
     let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM assistants WHERE id = ?")
         .bind(&assistant_id)
@@ -27,4 +27,3 @@ async fn test_create_assistant() {
         .unwrap();
     assert_eq!(row.0, 1, "Assistant was not inserted into the database");
 }
-
