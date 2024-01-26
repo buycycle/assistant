@@ -3,6 +3,5 @@
 .env
 
 Cargo.lock
-sqlite.db
 
 /context
