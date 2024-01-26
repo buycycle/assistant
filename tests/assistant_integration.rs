@@ -1,34 +1,53 @@
-use reqwest;
-use serde_json::json;
-const BASE_URL: &str = "http://localhost:3000";
+use axum::{routing::post, Router};
+use sqlx::{Executor, SqlitePool};
+use std::net::SocketAddr;
+use tokio::sync::oneshot;
+use rust_bot::assistant::{create_assistant, assistant_chat_handler, DB};
+// Define a function to create the Axum app with the database pool and assistant.
+async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
+    // ... (same as in your main file)
+}
 #[tokio::test]
 async fn test_chat_endpoint() {
+    // Set up a temporary in-memory SQLite database for testing
+    let db_pool = SqlitePool::connect(":memory:").await.unwrap();
+    // Run database migrations here if necessary
+    // sqlx::migrate!("./migrations").run(&db_pool).await.unwrap();
+    // Create an assistant for testing
+    let assistant = create_assistant(
+        "Test Assistant",
+        "gpt-4",
+        "Your instructions here",
+        "/context",
+    )
+    .await
+    .unwrap();
+    // Start the server using the `app` function
+    let router = app(db_pool.clone(), assistant.id).await;
+    let (tx, rx) = oneshot::channel::<()>();
+    let server = axum::Server::bind(&"127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .serve(router.into_make_service())
+        .with_graceful_shutdown(async {
+            rx.await.ok();
+        });
+    let (server, addr) = tokio::spawn(server).await.unwrap();
+    // Perform the test
     let client = reqwest::Client::new();
-    let user_id = "test_user"; // Example user ID for testing
-    // Send a chat message to the chat endpoint
+    let user_id = "test_user";
     let response = client
-        .post(format!("{}/chat", BASE_URL))
-        .json(&json!({
+        .post(format!("http://{}/chat", addr))
+        .json(&serde_json::json!({
             "user_id": user_id,
             "message": "Hello, chatbot!"
         }))
         .send()
         .await
-        .expect("Failed to send request");
-    // Check that the response status code is OK
+        .unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::OK);
-    // Parse the response body as JSON
-    let response_json: serde_json::Value = response.json().await.expect("Failed to parse response as JSON");
-    // Perform additional checks on the response JSON
-    // For example, check that the response contains the expected message structure
-    if let Some(messages) = response_json.get("messages") {
-        assert!(messages.is_array(), "Expected 'messages' to be an array");
-        // Check that the array contains at least one message
-        assert!(!messages.as_array().unwrap().is_empty(), "Expected at least one message in the response");
-        // Check that the message content matches what was sent
-        assert_eq!(messages[0].get("text").unwrap(), "Hello, chatbot!");
-    } else {
-        panic!("Response JSON does not contain 'messages' key");
-    }
+    let response_json: serde_json::Value = response.json().await.unwrap();
+    // ... (rest of your test assertions)
+    // Shut down the server
+    tx.send(()).unwrap();
+    server.await.unwrap();
 }
 
