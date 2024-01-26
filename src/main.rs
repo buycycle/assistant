@@ -1,9 +1,9 @@
+mod assistant;
 use assistant::create_assistant;
 use assistant::{assistant_chat_handler, DB};
 use axum::{extract::Extension, routing::post, Router};
 use dotenv::dotenv;
 use sqlx::SqlitePool;
-mod assistant;
 // Define a function to create the Axum app with the database pool and assistant.
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
@@ -21,7 +21,7 @@ async fn main() {
         "My Assistant",
         "gpt-4",
         "Your instructions here",
-        "context",
+        "/context",
     )
     .await
     {
