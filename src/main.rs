@@ -8,7 +8,7 @@ use sqlx::SqlitePool;
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
     Router::new()
-        .route("/chat", post(assistant_chat_handler)) // Updated route
+        .route("/assistant", post(assistant_chat_handler)) // Updated route
         .layer(Extension(db_pool))
         .layer(Extension(assistant_id)) // Add the assistant ID as a layer
 }
@@ -21,7 +21,7 @@ async fn main() {
         "My Assistant",
         "gpt-4",
         "Your instructions here",
-        "/context",
+        "context",
     )
     .await
     {

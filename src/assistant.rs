@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use log::{info};
 
 use axum::{
     http::StatusCode,
@@ -238,7 +239,9 @@ impl Assistant {
                     .file_name(file_name) // Set the file name for the part
                     .mime_str("application/octet-stream")?; // Set the MIME type for the part
                                                             // Create a Form and add the Part to it
-                let form = Form::new().part("file", part);
+                let form = Form::new()
+                    .part("file", part)
+                    .text("purpose", "assistants");
                 // Send the multipart form as the body of a POST request
                 let response = client
                     .post("https://api.openai.com/v1/files")
@@ -313,6 +316,7 @@ pub async fn create_assistant(
     };
     // Initialize the assistant by creating it on the OpenAI platform
     assistant.initialize().await?;
+    info!("Assistant created with ID: {}", assistant.id);
     // Scrape context if needed (optional, based on whether scrape_urls are provided)
     if !assistant.scrape_urls.is_empty() {
         assistant.scrape_context().await?;
@@ -323,7 +327,6 @@ pub async fn create_assistant(
     assistant.attach_files().await?;
     Ok(assistant)
 }
-
 struct Chat {
     id: String,
     user_id: String,
@@ -480,7 +483,7 @@ impl DB {
         Ok(DB { pool })
     }
     /// Gets the chat ID for a given user ID.
-    pub async fn get_chat_id(&self, user_id: &String) -> Result<Option<i64>, AssistantError> {
+    pub async fn get_chat_id(&self, user_id: &String) -> Result<Option<String>, AssistantError> {
         let result = sqlx::query!(
             "SELECT id FROM chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
             user_id
@@ -489,7 +492,7 @@ impl DB {
         .await
         .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         match result {
-            Some(row) => Ok(Some(row.id)),
+            Some(row) => Ok(row.id), // row.id is already an Option<String>
             None => Ok(None), // No chat ID found, return None
         }
     }
@@ -572,7 +575,7 @@ impl Run {
         }
     }
     /// Retrieves the status of the run for the given thread.
-    pub async fn status(&self, chat_id: &str) -> Result<String, AssistantError> {
+    pub async fn get_status(&mut self, chat_id: &str) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
@@ -590,7 +593,8 @@ impl Run {
                 let run_status_response = res.json::<RunStatusResponse>().await.map_err(|_| {
                     AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
                 })?;
-                Ok(run_status_response.status)
+                self.status = run_status_response.status;
+                Ok(())
             }
             Ok(res) => {
                 let error_message = res.text().await.unwrap_or_default();
@@ -639,10 +643,8 @@ pub async fn assistant_chat_handler(
                 messages: Vec::new(),
             };
             chat.initialize().await?;
-            let new_chat_id = chat.id.parse::<i64>().map_err(|_| {
-                AssistantError::DatabaseError("Failed to parse chat ID as i64".to_string())
-            })?;
-            db.save_chat_id(user_id, &new_chat_id.to_string()).await?;
+            let new_chat_id = chat.id; // No need to parse as i64, it's already a String
+            db.save_chat_id(user_id, &new_chat_id).await?;
             new_chat_id
         }
     };
@@ -664,14 +666,17 @@ pub async fn assistant_chat_handler(
     run.create(&chat.id, &assistant_id).await?;
     // Check the status of the run until it's completed or a timeout occurs
     let start_time = std::time::Instant::now();
-    while start_time.elapsed().as_secs() < 10 {
-        let status = run.status(&chat.id).await?;
-        if status == "completed" {
+    while start_time.elapsed().as_secs() < 30 {
+        run.get_status(&chat.id).await?; // This sets the run.status field
+        if run.status == "completed" {
+            info!("Run completed, status: {}", run.status);
             break;
         }
+        info!("Run not completed, current status: {}", run.status);
         // Sleep for a short duration before checking the status again
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
+    // Use the run.status field for the final check
     if run.status != "completed" {
         return Err(AssistantError::OpenAIError(
             "Run did not complete in time".to_string(),
