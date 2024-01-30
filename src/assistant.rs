@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use log::{info};
+use log::info;
 
 use axum::{
     http::StatusCode,
@@ -171,6 +171,29 @@ impl Assistant {
             ))),
         }
     }
+    /// Delete the OpenAI assistant with the given ID
+    pub async fn delete(&self) -> Result<(), AssistantError> {
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let client = Client::new();
+        let response = client
+            .delete(format!("https://api.openai.com/v1/assistants/{}", self.id))
+            .header("OpenAI-Beta", "assistants=v1")
+            .bearer_auth(&api_key)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => Ok(()),
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(format!(
+                "Failed to send DELETE request to OpenAI: {}",
+                e
+            ))),
+        }
+    }
     pub async fn scrape_context(&self) -> Result<(), AssistantError> {
         let client = Client::new();
         let folder_path = Path::new(&self.folder_path);
@@ -270,6 +293,40 @@ impl Assistant {
         }
         Ok(())
     }
+    /// delelte all files that where uploaded when creating the assistant
+    pub async fn delete_files(&mut self) -> Result<(), AssistantError> {
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let client = Client::new();
+        // Iterate over the file IDs and delete each file
+        for file_id in &self.file_ids {
+            let response = client
+                .delete(format!("https://api.openai.com/v1/files/{}", file_id))
+                .bearer_auth(&api_key)
+                .send()
+                .await;
+            match response {
+                Ok(res) if res.status().is_success() => {
+                }
+                Ok(res) => {
+                    // API returned an error status, handle it
+                    let error_message = res.text().await.unwrap_or_default();
+                    return Err(AssistantError::OpenAIError(error_message));
+                }
+                Err(e) => {
+                    // Network or other error occurred, handle it
+                    return Err(AssistantError::OpenAIError(format!(
+                        "Failed to send DELETE request to OpenAI: {}",
+                        e
+                    )));
+                }
+            }
+        }
+        // Clear the file_ids vector since all files have been deleted
+        self.file_ids.clear();
+        Ok(())
+    }
+
     /// Attach the files with IDs stored in the file_ids field to the assistant.
     pub async fn attach_files(&self) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY")
@@ -327,9 +384,20 @@ pub async fn create_assistant(
     assistant.attach_files().await?;
     Ok(assistant)
 }
+
+pub async fn teardown_assistant(
+    assistant: Assistant,
+) -> Result<(), AssistantError> {
+    // Delete the assistant on the OpenAI platform
+    assistant.delete().await?;
+    info!("Assistant with ID: {} has been deleted", assistant.id);
+    assistant.delete_files().await?;
+    info!("All files uploaded for assistant with ID: {} deleted", assistant.id);
+    Ok(())
+}
+
 struct Chat {
     id: String,
-    user_id: String,
     messages: Vec<SimplifiedMessage>,
 }
 
@@ -645,7 +713,6 @@ pub async fn assistant_chat_handler(
         None => {
             let mut chat = Chat {
                 id: String::new(), // Temporarily set to String::new(), will be updated below
-                user_id: user_id.to_string(),
                 messages: Vec::new(),
             };
             chat.initialize().await?;
@@ -659,7 +726,6 @@ pub async fn assistant_chat_handler(
     // Initialize the chat struct with the correct chat_id type
     let mut chat = Chat {
         id: chat_id.to_string(),
-        user_id: user_id.to_string(),
         messages: Vec::new(),
     };
     // Send the user's message to the chat

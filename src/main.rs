@@ -16,10 +16,10 @@ async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
 async fn main() {
     env_logger::init();
     dotenv().ok();
-    // Create an assistant outside of the main function.
+// Create an assistant outside of the main function.
     let assistant = match create_assistant(
         "My Assistant",
-        "gpt-4",
+        "gpt-4-0125-preview",
         "Your instructions here",
         "context",
     )
