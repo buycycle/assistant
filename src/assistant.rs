@@ -373,59 +373,65 @@ impl Chat {
             ))),
         }
     }
-    pub async fn list_messages(&mut self, only_last: bool) -> Result<(), AssistantError> {
-        let client = Client::new();
-        let api_key = env::var("OPENAI_API_KEY")
-            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
-        let response = client
-            .get(&format!(
-                "https://api.openai.com/v1/threads/{}/messages",
-                self.id
-            ))
-            .header("Content-Type", "application/json")
-            .bearer_auth(&api_key)
-            .header("OpenAI-Beta", "assistants=v1")
-            .send()
-            .await;
-        match response {
-            Ok(res) if res.status().is_success() => {
-                let message_list_response =
-                    res.json::<MessageListResponse>().await.map_err(|_| {
-                        AssistantError::OpenAIError(
-                            "Failed to parse response from OpenAI".to_string(),
-                        )
-                    })?;
-                let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
-                    .data
-                    .into_iter()
-                    .filter_map(|msg| {
-                        if let Some(content) =
-                            msg.content.into_iter().find(|c| c.content_type == "text")
-                        {
-                            if let Some(text_content) = content.text {
-                                return Some(SimplifiedMessage {
-                                    created_at: msg.created_at,
-                                    role: msg.role,
-                                    text: text_content.value,
-                                });
-                            }
+    pub async fn get_messages(&mut self, only_last: bool) -> Result<(), AssistantError> {
+    let client = Client::new();
+    let api_key = env::var("OPENAI_API_KEY")
+        .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+    let response = client
+        .get(&format!(
+            "https://api.openai.com/v1/threads/{}/messages",
+            self.id
+        ))
+        .header("Content-Type", "application/json")
+        .bearer_auth(&api_key)
+        .header("OpenAI-Beta", "assistants=v1")
+        .send()
+        .await;
+    match response {
+        Ok(res) if res.status().is_success() => {
+            let message_list_response =
+                res.json::<MessageListResponse>().await.map_err(|_| {
+                    AssistantError::OpenAIError(
+                        "Failed to parse response from OpenAI".to_string(),
+                    )
+                })?;
+            let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
+                .data
+                .into_iter()
+                .filter_map(|msg| {
+                    if let Some(content) =
+                        msg.content.into_iter().find(|c| c.content_type == "text")
+                    {
+                        if let Some(text_content) = content.text {
+                            return Some(SimplifiedMessage {
+                                created_at: msg.created_at,
+                                role: msg.role,
+                                text: text_content.value,
+                            });
                         }
-                        None
-                    })
-                    .collect();
-                if only_last {
-                    simplified_messages = simplified_messages.into_iter().rev().take(1).collect();
+                    }
+                    None
+                })
+                .collect();
+            if only_last {
+                // Get the last message based on created_at without sorting
+                if let Some(last_message) = simplified_messages.iter().max_by_key(|m| m.created_at) {
+                    simplified_messages = vec![last_message.clone()];
                 }
-                self.messages = simplified_messages;
-                Ok(())
+            } else {
+                // Sort by created_at in ascending order only if we need the full list
+                simplified_messages.sort_by_key(|m| m.created_at);
             }
-            Ok(res) => {
-                let error_message = res.text().await.unwrap_or_default();
-                Err(AssistantError::OpenAIError(error_message))
-            }
-            Err(e) => Err(AssistantError::OpenAIError(e.to_string())),
+            self.messages = simplified_messages;
+            Ok(())
         }
+        Ok(res) => {
+            let error_message = res.text().await.unwrap_or_default();
+            Err(AssistantError::OpenAIError(error_message))
+        }
+        Err(e) => Err(AssistantError::OpenAIError(e.to_string())),
     }
+}
     pub async fn add_message(&self, message: &str, role: &str) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
@@ -683,7 +689,7 @@ pub async fn assistant_chat_handler(
         ));
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
-    chat.list_messages(true).await?;
+    chat.get_messages(true).await?;
     // Return the updated conversation history including the assistant's response
     Ok(Json(AssistantChatResponse {
         messages: chat.messages,
