@@ -213,7 +213,7 @@ impl Files {
         }
         Ok(())
     }
-    pub async fn delete_files(&mut self) -> Result<(), AssistantError> {
+    pub async fn delete(&mut self) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
         let client = Client::new();
@@ -258,7 +258,10 @@ impl Assistant {
         let payload = json!({
             "instructions": self.instructions,
             "name": self.name,
-            "tools": [{"type": "code_interpreter"}],
+            "tools": [
+                {"type": "retrieval"},
+                {"type": "code_interpreter"}
+            ],
             "model": self.model,
         });
         let response = client
@@ -346,7 +349,7 @@ impl Assistant {
         Ok(())
     }
 }
-
+/// scrape urls and upload the resulting files to OpenAI
 pub async fn create_files(folder_path: &str, scrape_urls: Vec<String>) -> Result<Files, AssistantError> {
     // Initialize the Files struct directly
     let mut files = Files {
@@ -731,7 +734,7 @@ pub async fn assistant_chat_handler(
     run.create(&chat.id, &assistant_id).await?;
     // Check the status of the run until it's completed or a timeout occurs
     let start_time = std::time::Instant::now();
-    while start_time.elapsed().as_secs() < 30 {
+    while start_time.elapsed().as_secs() < 120 {
         run.get_status(&chat.id).await?; // This sets the run.status field
         if run.status == "completed" {
             info!("Run completed, status: {}", run.status);
