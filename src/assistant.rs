@@ -45,11 +45,6 @@ impl From<reqwest::Error> for AssistantError {
         AssistantError::OpenAIError(err.to_string())
     }
 }
-// Define the response type for the file upload response.
-#[derive(Deserialize)]
-struct FileUploadResponse {
-    id: String,
-}
 // Define the response type for attaching files to an assistant.
 #[derive(Serialize)]
 struct AttachFilesRequest {
@@ -115,6 +110,137 @@ pub struct AssistantChatResponse {
     pub messages: Vec<SimplifiedMessage>,
 }
 
+// Define the response type for the file upload response.
+#[derive(Deserialize)]
+struct FileUploadResponse {
+    id: String,
+}
+
+pub struct Files {
+    folder_path: String,
+    file_ids: Vec<String>,
+    scrape_urls: Vec<String>,
+}
+impl Files {
+    pub async fn scrape_context(&self) -> Result<(), AssistantError> {
+        let client = Client::new();
+        let folder_path = Path::new(&self.folder_path);
+        fs::create_dir_all(&folder_path)
+            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+        for url in &self.scrape_urls {
+            let response = client.get(url).send().await;
+            match response {
+                Ok(res) if res.status().is_success() => {
+                    let file_name = url
+                        .replace("https://", "")
+                        .replace("http://", "")
+                        .replace("/", "_");
+                    let file_path = folder_path.join(format!("{}.html", file_name));
+                    let html = res
+                        .text()
+                        .await
+                        .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+                    fs::write(file_path, html)
+                        .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+                }
+                Ok(res) => {
+                    let error_message = res
+                        .text()
+                        .await
+                        .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+                    return Err(AssistantError::OpenAIError(error_message));
+                }
+                Err(e) => {
+                    return Err(AssistantError::OpenAIError(e.to_string()));
+                }
+            }
+        }
+        Ok(())
+    }
+    pub async fn upload_files(&mut self) -> Result<(), AssistantError> {
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let client = Client::new();
+        let paths = fs::read_dir(Path::new(&self.folder_path))
+            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+        for path in paths {
+            let path = path
+                .map_err(|e| AssistantError::DatabaseError(e.to_string()))?
+                .path();
+            if path.is_file() {
+                let file_content =
+                    fs::read(&path).map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+                let file_name = path
+                    .file_name()
+                    .ok_or_else(|| {
+                        AssistantError::OpenAIError("Failed to get file name".to_string())
+                    })?
+                    .to_str()
+                    .ok_or_else(|| {
+                        AssistantError::OpenAIError(
+                            "Failed to convert file name to string".to_string(),
+                        )
+                    })?
+                    .to_owned();
+                let part = Part::bytes(file_content)
+                    .file_name(file_name)
+                    .mime_str("application/octet-stream")?;
+                let form = Form::new().part("file", part).text("purpose", "assistants");
+                let response = client
+                    .post("https://api.openai.com/v1/files")
+                    .header("OpenAI-Beta", "assistants=v1")
+                    .bearer_auth(&api_key)
+                    .multipart(form)
+                    .send()
+                    .await;
+                match response {
+                    Ok(res) if res.status().is_success() => {
+                        if let Ok(file_response) = res.json::<FileUploadResponse>().await {
+                            self.file_ids.push(file_response.id);
+                        } else {
+                            return Err(AssistantError::OpenAIError(
+                                "Failed to parse response from OpenAI".to_string(),
+                            ));
+                        }
+                    }
+                    Ok(res) => {
+                        let error_message = res.text().await.unwrap_or_default();
+                        return Err(AssistantError::OpenAIError(error_message));
+                    }
+                    Err(e) => return Err(AssistantError::OpenAIError(e.to_string())),
+                }
+            }
+        }
+        Ok(())
+    }
+    pub async fn delete_files(&mut self) -> Result<(), AssistantError> {
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let client = Client::new();
+        for file_id in &self.file_ids {
+            let response = client
+                .delete(format!("https://api.openai.com/v1/files/{}", file_id))
+                .bearer_auth(&api_key)
+                .send()
+                .await;
+            match response {
+                Ok(res) if res.status().is_success() => {}
+                Ok(res) => {
+                    let error_message = res.text().await.unwrap_or_default();
+                    return Err(AssistantError::OpenAIError(error_message));
+                }
+                Err(e) => {
+                    return Err(AssistantError::OpenAIError(format!(
+                        "Failed to send DELETE request to OpenAI: {}",
+                        e
+                    )));
+                }
+            }
+        }
+        self.file_ids.clear();
+        Ok(())
+    }
+}
 /// A struct representing an OpenAI assistant.
 /// The tools are currently hardcoded as a code_interpreter.
 pub struct Assistant {
@@ -122,9 +248,6 @@ pub struct Assistant {
     name: String,
     model: String,
     instructions: String,
-    folder_path: String,
-    file_ids: Vec<String>,
-    scrape_urls: Vec<String>,
 }
 impl Assistant {
     /// create an OpenAI assistant and set the assistant's ID
@@ -194,145 +317,12 @@ impl Assistant {
             ))),
         }
     }
-    pub async fn scrape_context(&self) -> Result<(), AssistantError> {
-        let client = Client::new();
-        let folder_path = Path::new(&self.folder_path);
-        fs::create_dir_all(&folder_path)
-            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        for url in &self.scrape_urls {
-            let response = client.get(url).send().await;
-            match response {
-                Ok(res) if res.status().is_success() => {
-                    let file_name = url
-                        .replace("https://", "")
-                        .replace("http://", "")
-                        .replace("/", "_");
-                    let file_path = folder_path.join(format!("{}.html", file_name));
-                    let html = res
-                        .text()
-                        .await
-                        .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
-                    fs::write(file_path, html)
-                        .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-                }
-                Ok(res) => {
-                    let error_message = res
-                        .text()
-                        .await
-                        .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
-                    return Err(AssistantError::OpenAIError(error_message));
-                }
-                Err(e) => {
-                    return Err(AssistantError::OpenAIError(e.to_string()));
-                }
-            }
-        }
-        Ok(())
-    }
-    /// upload a all files in a folder and return a vector of file IDs
-    pub async fn upload_files(&mut self) -> Result<(), AssistantError> {
-        let api_key = env::var("OPENAI_API_KEY")
-            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
-        let client = Client::new();
-        let paths = fs::read_dir(Path::new(&self.folder_path))
-            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        for path in paths {
-            let path = path
-                .map_err(|e| AssistantError::DatabaseError(e.to_string()))?
-                .path();
-            if path.is_file() {
-                // Read the file content into memory
-                let file_content =
-                    fs::read(&path).map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
-                // Get the file name as an owned String
-                let file_name = path
-                    .file_name()
-                    .ok_or_else(|| {
-                        AssistantError::OpenAIError("Failed to get file name".to_string())
-                    })?
-                    .to_str()
-                    .ok_or_else(|| {
-                        AssistantError::OpenAIError(
-                            "Failed to convert file name to string".to_string(),
-                        )
-                    })?
-                    .to_owned();
-                // Create a Part from the file content
-                let part = Part::bytes(file_content)
-                    .file_name(file_name) // Set the file name for the part
-                    .mime_str("application/octet-stream")?; // Set the MIME type for the part
-                                                            // Create a Form and add the Part to it
-                let form = Form::new()
-                    .part("file", part)
-                    .text("purpose", "assistants");
-                // Send the multipart form as the body of a POST request
-                let response = client
-                    .post("https://api.openai.com/v1/files")
-                    .header("OpenAI-Beta", "assistants=v1")
-                    .bearer_auth(&api_key)
-                    .multipart(form)
-                    .send()
-                    .await;
-                match response {
-                    Ok(res) if res.status().is_success() => {
-                        if let Ok(file_response) = res.json::<FileUploadResponse>().await {
-                            self.file_ids.push(file_response.id);
-                        } else {
-                            return Err(AssistantError::OpenAIError(
-                                "Failed to parse response from OpenAI".to_string(),
-                            ));
-                        }
-                    }
-                    Ok(res) => {
-                        let error_message = res.text().await.unwrap_or_default();
-                        return Err(AssistantError::OpenAIError(error_message));
-                    }
-                    Err(e) => return Err(AssistantError::OpenAIError(e.to_string())),
-                }
-            }
-        }
-        Ok(())
-    }
-    /// delelte all files that where uploaded when creating the assistant
-    pub async fn delete_files(&mut self) -> Result<(), AssistantError> {
-        let api_key = env::var("OPENAI_API_KEY")
-            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
-        let client = Client::new();
-        // Iterate over the file IDs and delete each file
-        for file_id in &self.file_ids {
-            let response = client
-                .delete(format!("https://api.openai.com/v1/files/{}", file_id))
-                .bearer_auth(&api_key)
-                .send()
-                .await;
-            match response {
-                Ok(res) if res.status().is_success() => {
-                }
-                Ok(res) => {
-                    // API returned an error status, handle it
-                    let error_message = res.text().await.unwrap_or_default();
-                    return Err(AssistantError::OpenAIError(error_message));
-                }
-                Err(e) => {
-                    // Network or other error occurred, handle it
-                    return Err(AssistantError::OpenAIError(format!(
-                        "Failed to send DELETE request to OpenAI: {}",
-                        e
-                    )));
-                }
-            }
-        }
-        // Clear the file_ids vector since all files have been deleted
-        self.file_ids.clear();
-        Ok(())
-    }
 
-    /// Attach the files with IDs stored in the file_ids field to the assistant.
-    pub async fn attach_files(&self) -> Result<(), AssistantError> {
+    pub async fn attach_files(&self, file_ids: &[String]) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
         let client = Client::new();
-        for file_id in &self.file_ids {
+        for file_id in file_ids {
             let payload = json!({ "file_id": file_id });
             let response = client
                 .post(format!(
@@ -356,32 +346,37 @@ impl Assistant {
         Ok(())
     }
 }
+
+pub async fn create_files(folder_path: &str, scrape_urls: Vec<String>) -> Result<Files, AssistantError> {
+    // Initialize the Files struct directly
+    let mut files = Files {
+        folder_path: folder_path.to_string(),
+        file_ids: Vec::new(), // Initially empty, will be filled during file upload
+        scrape_urls, // Provided scrape URLs
+    };
+    // Scrape the context from the provided URLs
+    files.scrape_context().await?;
+    // Upload the scraped files to OpenAI
+    files.upload_files().await?;
+    Ok(files)
+}
 pub async fn create_assistant(
     assistant_name: &str,
     model: &str,
     instructions: &str,
-    folder_path: &str,
+    files: Files, // Add this parameter to accept a Files struct
 ) -> Result<Assistant, AssistantError> {
     let mut assistant = Assistant {
         id: String::new(),
         name: assistant_name.to_string(),
         model: model.to_string(),
         instructions: instructions.to_string(),
-        folder_path: folder_path.to_string(),
-        scrape_urls: Vec::new(),
-        file_ids: Vec::new(), // Make sure this field exists in the Assistant struct
     };
     // Initialize the assistant by creating it on the OpenAI platform
     assistant.initialize().await?;
     info!("Assistant created with ID: {}", assistant.id);
-    // Scrape context if needed (optional, based on whether scrape_urls are provided)
-    if !assistant.scrape_urls.is_empty() {
-        assistant.scrape_context().await?;
-    }
-    // Upload files from the folder_path to OpenAI and store the file IDs in the assistant
-    assistant.upload_files().await?;
-    // Attach the uploaded files to the assistant using the stored file IDs
-    assistant.attach_files().await?;
+    // Attach the uploaded files to the assistant using the file IDs from the Files struct
+    assistant.attach_files(&files.file_ids).await?;
     Ok(assistant)
 }
 
@@ -391,8 +386,6 @@ pub async fn teardown_assistant(
     // Delete the assistant on the OpenAI platform
     assistant.delete().await?;
     info!("Assistant with ID: {} has been deleted", assistant.id);
-    assistant.delete_files().await?;
-    info!("All files uploaded for assistant with ID: {} deleted", assistant.id);
     Ok(())
 }
 

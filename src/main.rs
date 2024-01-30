@@ -1,5 +1,5 @@
 mod assistant;
-use assistant::create_assistant;
+use assistant::{create_assistant, create_files};
 use assistant::{assistant_chat_handler, DB};
 use axum::{extract::Extension, routing::post, Router};
 use dotenv::dotenv;
@@ -16,12 +16,25 @@ async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
 async fn main() {
     env_logger::init();
     dotenv().ok();
+// Create the files for the assistant.
+    let files = match create_files(
+        "context",
+        Vec::new(),
+    )
+    .await
+    {
+        Ok(files) => files,
+        Err(e) => {
+            eprintln!("Failed to create files: {:?}", e);
+            return;
+        }
+    };
 // Create an assistant outside of the main function.
     let assistant = match create_assistant(
         "My Assistant",
         "gpt-4-0125-preview",
         "Your instructions here",
-        "context",
+        files,
     )
     .await
     {
