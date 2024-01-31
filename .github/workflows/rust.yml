@@ -7,7 +7,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
-  OPENAI_API_KEY: ${{ secrests.OPENAI_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 jobs:
   build:
     runs-on: ubuntu-latest
