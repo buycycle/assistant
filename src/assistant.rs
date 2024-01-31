@@ -1,6 +1,6 @@
+use log::info;
 use std::fs;
 use std::path::Path;
-use log::info;
 
 use axum::{
     http::StatusCode,
@@ -117,8 +117,8 @@ struct FileUploadResponse {
 }
 
 pub struct Files {
+    pub file_ids: Vec<String>,
     folder_path: String,
-    file_ids: Vec<String>,
     scrape_urls: Vec<String>,
 }
 impl Files {
@@ -321,7 +321,7 @@ impl Assistant {
         }
     }
 
-    pub async fn attach_files(&self, file_ids: &[String]) -> Result<(), AssistantError> {
+    pub async fn attach_files(&self, file_ids: &Vec<String>) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
         let client = Client::new();
@@ -350,12 +350,15 @@ impl Assistant {
     }
 }
 /// scrape urls and upload the resulting files to OpenAI
-pub async fn create_files(folder_path: &str, scrape_urls: Vec<String>) -> Result<Files, AssistantError> {
+pub async fn create_files(
+    folder_path: &str,
+    scrape_urls: Vec<String>,
+) -> Result<Files, AssistantError> {
     // Initialize the Files struct directly
     let mut files = Files {
         folder_path: folder_path.to_string(),
         file_ids: Vec::new(), // Initially empty, will be filled during file upload
-        scrape_urls, // Provided scrape URLs
+        scrape_urls,          // Provided scrape URLs
     };
     // Scrape the context from the provided URLs
     files.scrape_context().await?;
@@ -367,7 +370,7 @@ pub async fn create_assistant(
     assistant_name: &str,
     model: &str,
     instructions: &str,
-    files: Files, // Add this parameter to accept a Files struct
+    file_ids: &Vec<String>,
 ) -> Result<Assistant, AssistantError> {
     let mut assistant = Assistant {
         id: String::new(),
@@ -379,15 +382,14 @@ pub async fn create_assistant(
     assistant.initialize().await?;
     info!("Assistant created with ID: {}", assistant.id);
     // Attach the uploaded files to the assistant using the file IDs from the Files struct
-    assistant.attach_files(&files.file_ids).await?;
+    assistant.attach_files(file_ids).await?;
     Ok(assistant)
 }
 
-pub async fn teardown_assistant(
-    assistant: Assistant,
-) -> Result<(), AssistantError> {
+pub async fn teardown(assistant: Assistant, mut files: Files) -> Result<(), AssistantError> {
     // Delete the assistant on the OpenAI platform
     assistant.delete().await?;
+    files.delete().await?;
     info!("Assistant with ID: {} has been deleted", assistant.id);
     Ok(())
 }
@@ -438,64 +440,66 @@ impl Chat {
         }
     }
     pub async fn get_messages(&mut self, only_last: bool) -> Result<(), AssistantError> {
-    let client = Client::new();
-    let api_key = env::var("OPENAI_API_KEY")
-        .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
-    let response = client
-        .get(&format!(
-            "https://api.openai.com/v1/threads/{}/messages",
-            self.id
-        ))
-        .header("Content-Type", "application/json")
-        .bearer_auth(&api_key)
-        .header("OpenAI-Beta", "assistants=v1")
-        .send()
-        .await;
-    match response {
-        Ok(res) if res.status().is_success() => {
-            let message_list_response =
-                res.json::<MessageListResponse>().await.map_err(|_| {
-                    AssistantError::OpenAIError(
-                        "Failed to parse response from OpenAI".to_string(),
-                    )
-                })?;
-            let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
-                .data
-                .into_iter()
-                .filter_map(|msg| {
-                    if let Some(content) =
-                        msg.content.into_iter().find(|c| c.content_type == "text")
-                    {
-                        if let Some(text_content) = content.text {
-                            return Some(SimplifiedMessage {
-                                created_at: msg.created_at,
-                                role: msg.role,
-                                text: text_content.value,
-                            });
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let response = client
+            .get(&format!(
+                "https://api.openai.com/v1/threads/{}/messages",
+                self.id
+            ))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v1")
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => {
+                let message_list_response =
+                    res.json::<MessageListResponse>().await.map_err(|_| {
+                        AssistantError::OpenAIError(
+                            "Failed to parse response from OpenAI".to_string(),
+                        )
+                    })?;
+                let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
+                    .data
+                    .into_iter()
+                    .filter_map(|msg| {
+                        if let Some(content) =
+                            msg.content.into_iter().find(|c| c.content_type == "text")
+                        {
+                            if let Some(text_content) = content.text {
+                                return Some(SimplifiedMessage {
+                                    created_at: msg.created_at,
+                                    role: msg.role,
+                                    text: text_content.value,
+                                });
+                            }
                         }
+                        None
+                    })
+                    .collect();
+                if only_last {
+                    // Get the last message based on created_at without sorting
+                    if let Some(last_message) =
+                        simplified_messages.iter().max_by_key(|m| m.created_at)
+                    {
+                        simplified_messages = vec![last_message.clone()];
                     }
-                    None
-                })
-                .collect();
-            if only_last {
-                // Get the last message based on created_at without sorting
-                if let Some(last_message) = simplified_messages.iter().max_by_key(|m| m.created_at) {
-                    simplified_messages = vec![last_message.clone()];
+                } else {
+                    // Sort by created_at in ascending order only if we need the full list
+                    simplified_messages.sort_by_key(|m| m.created_at);
                 }
-            } else {
-                // Sort by created_at in ascending order only if we need the full list
-                simplified_messages.sort_by_key(|m| m.created_at);
+                self.messages = simplified_messages;
+                Ok(())
             }
-            self.messages = simplified_messages;
-            Ok(())
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(e.to_string())),
         }
-        Ok(res) => {
-            let error_message = res.text().await.unwrap_or_default();
-            Err(AssistantError::OpenAIError(error_message))
-        }
-        Err(e) => Err(AssistantError::OpenAIError(e.to_string())),
     }
-}
     pub async fn add_message(&self, message: &str, role: &str) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
@@ -563,7 +567,7 @@ impl DB {
         .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         match result {
             Some(row) => Ok(row.id), // row.id is already an Option<String>
-            None => Ok(None), // No chat ID found, return None
+            None => Ok(None),        // No chat ID found, return None
         }
     }
     /// Saves the chat ID into the database.
