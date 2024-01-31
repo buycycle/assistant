@@ -6,7 +6,8 @@ on:
     branches: [ "master", "dev" ]
 env:
   CARGO_TERM_COLOR: always
-  DATABASE_URL: sqlite:sqlite.db
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 jobs:
   build:
     runs-on: ubuntu-latest

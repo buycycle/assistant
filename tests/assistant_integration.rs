@@ -25,8 +25,10 @@ async fn setup_test_app() -> axum::Router {
         .await
         .expect("Failed to create database pool for testing");
     let db_pool = db.pool; // Extract the SqlitePool from the DB struct
-    // Create the files for the assistant.
-    let files = create_files("context", Vec::new()).await.expect("Failed to create files");
+                           // Create the files for the assistant.
+    let files = create_files("context", Vec::new())
+        .await
+        .expect("Failed to create files");
     // Create an assistant.
     let assistant = create_assistant(
         "Test",
