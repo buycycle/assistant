@@ -18,9 +18,6 @@ jobs:
         profile: minimal
         toolchain: stable
         override: true
-    - name: Check formatting
-      run: |
-        cargo fmt -- --check
     - name: Format
       run: |
         cargo fmt
@@ -29,6 +26,10 @@ jobs:
         git add -u
         git commit -m "Apply cargo fmt" || echo "No changes to commit"
         git push
+    - name: Check formatting
+      run: |
+        cargo fmt -- --check
     - name: Build
       run: cargo build --verbose
-
+    - name: Run tests
+      run: cargo test --verbose
