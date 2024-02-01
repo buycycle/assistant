@@ -34,7 +34,9 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
    ```
 5. Build and run the application:
    ```sh
-   cargo run
+    cargo run
+
+    RUST_LOG=info cargo run #with logging
    ```
 ## Usage
 To interact with the chatbot, send a `POST` request to the `/assistant` endpoint with a JSON payload containing the `chat_id` and `message`.
