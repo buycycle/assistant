@@ -19,17 +19,8 @@ jobs:
         profile: minimal
         toolchain: stable
         override: true
-    - name: Format
-      run: |
-        cargo fmt
-        git config --global user.name 'github-actions'
-        git config --global user.email 'github-actions@github.com'
-        git add -u
-        git commit -m "Apply cargo fmt" || echo "No changes to commit"
-        git push
     - name: Check formatting
-      run: |
-        cargo fmt -- --check
+      run: cargo fmt -- --check
     - name: Build
       run: cargo build --verbose
     - name: Run tests
