@@ -27,7 +27,7 @@ async fn main() {
     // Create an assistant outside of the main function.
     let assistant = match create_assistant(
         "My Assistant",
-        "gpt-4-1106-preview",
+        "gpt-4-turbo-preview",
         "On buycycle.com, users can buy and sell per-owned bicycles.
         Help the users with how the website works, use the faq.html for refeeral links.
         ",

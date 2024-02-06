@@ -51,40 +51,37 @@ struct AttachFilesRequest {
     file_id: String,
 }
 
-// Struct for deserializing the OpenAI API response
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Message {
+pub struct ChatMessage {
     id: String,
     created_at: i64,
     role: String,
     content: Vec<Content>,
 }
+// Message content in the Chat
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Content {
     #[serde(rename = "type")]
     content_type: String,
     text: Option<TextContent>,
+    // image: Option<ImageContent>,
+    //
 }
+// TextContent in the Chat
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TextContent {
     value: String,
 }
+// List messages in a chat
 #[derive(Serialize, Deserialize, Debug)]
-pub struct MessageListResponse {
+pub struct ChatMessageList {
     object: String,
-    data: Vec<Message>,
-}
-// Struct for serializing the simplified message format to be sent to the client
-#[derive(Serialize, Clone)]
-pub struct SimplifiedMessage {
-    pub created_at: i64,
-    pub role: String,
-    pub text: String,
+    data: Vec<ChatMessage>,
 }
 
-// Struct for serializing the message content to be sent to OpenAI
+// Struct for serializing the message to be sent to OpenAI
 #[derive(Serialize)]
-struct MessageContent {
+struct UserMessage {
     role: String,
     content: String,
 }
@@ -94,11 +91,7 @@ struct RunResponse {
     id: String,
     status: String,
 }
-#[derive(Deserialize, Debug)]
-struct RunStatusResponse {
-    status: String,
-    // Other fields can be added here if needed
-}
+
 #[derive(Deserialize)]
 pub struct AssistantChatRequest {
     pub user_id: String,
@@ -110,6 +103,13 @@ pub struct AssistantChatResponse {
     pub messages: Vec<SimplifiedMessage>,
 }
 
+// Struct for serializing the simplified message format to be sent to the client
+#[derive(Serialize, Clone)]
+pub struct SimplifiedMessage {
+    pub created_at: i64,
+    pub role: String,
+    pub text: String,
+}
 // Define the response type for the file upload response.
 #[derive(Deserialize)]
 struct FileUploadResponse {
@@ -455,12 +455,9 @@ impl Chat {
             .await;
         match response {
             Ok(res) if res.status().is_success() => {
-                let message_list_response =
-                    res.json::<MessageListResponse>().await.map_err(|_| {
-                        AssistantError::OpenAIError(
-                            "Failed to parse response from OpenAI".to_string(),
-                        )
-                    })?;
+                let message_list_response = res.json::<ChatMessageList>().await.map_err(|_| {
+                    AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
+                })?;
                 let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
                     .data
                     .into_iter()
@@ -504,7 +501,7 @@ impl Chat {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
-        let payload = MessageContent {
+        let payload = UserMessage {
             role: role.to_string(),
             content: message.to_string(),
         };
@@ -664,7 +661,7 @@ impl Run {
             .await;
         match response {
             Ok(res) if res.status().is_success() => {
-                let run_status_response = res.json::<RunStatusResponse>().await.map_err(|_| {
+                let run_status_response = res.json::<RunResponse>().await.map_err(|_| {
                     AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
                 })?;
                 self.status = run_status_response.status;
