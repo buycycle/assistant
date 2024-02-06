@@ -57,7 +57,7 @@ pub struct ChatRequest {
 pub struct ChatResponse {
     pub response: String,
 }
-
+/// Completion Model based chat handler
 pub async fn chat_handler(
     Extension(db_pool): Extension<SqlitePool>,
     Json(chat_request): Json<ChatRequest>,
