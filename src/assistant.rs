@@ -455,12 +455,9 @@ impl Chat {
             .await;
         match response {
             Ok(res) if res.status().is_success() => {
-                let message_list_response =
-                    res.json::<ChatMessageList>().await.map_err(|_| {
-                        AssistantError::OpenAIError(
-                            "Failed to parse response from OpenAI".to_string(),
-                        )
-                    })?;
+                let message_list_response = res.json::<ChatMessageList>().await.map_err(|_| {
+                    AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
+                })?;
                 let mut simplified_messages: Vec<SimplifiedMessage> = message_list_response
                     .data
                     .into_iter()
