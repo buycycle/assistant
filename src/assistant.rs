@@ -41,8 +41,8 @@ impl From<sqlx::Error> for AssistantError {
 
 // Implement From<reqwest::Error> for AssistantError
 impl From<reqwest::Error> for AssistantError {
-    fn from(err: reqwest::Error) -> Self {
-        AssistantError::OpenAIError(err.to_string())
+    fn from(e: reqwest::Error) -> Self {
+        AssistantError::OpenAIError(e.to_string())
     }
 }
 // Define the response type for attaching files to an assistant.
