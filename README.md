@@ -2,9 +2,9 @@
 This is a chatbot application for the buycycle platform, built with [Axum](https://github.com/tokio-rs/axum), a modular web framework built with the [Tokio](https://tokio.rs/) async runtime for Rust.
 
 The chatbot is designed to be aware of historical messages, pre-trained on bike knowledge, and integrated with the buycycle stock and user platform interactions.
+
 ## Aim
 The aim of the buycycle chatbot is to provide customer support by helping users find a fitting bike and share knowledge about how to use the platform effectively. It leverages OpenAI's GPT-4 to generate contextually aware responses, ensuring a helpful and informative interaction with users.
-
 
 ## Features
 - Scrape context files from online ressources.
@@ -12,9 +12,11 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
 - Integration with OpenAI's GPT-4 for generating chatbot responses.
 - SQLite database for storing conversation history.
 - Environment-based configuration using `.env` files.
+
 ## Requirements
 - Rust 1.56 or higher
 - SQLite
+
 ## Setup
 1. Install Rust by following the instructions on the [official website](https://www.rust-lang.org/tools/install).
 2. Clone the repository:
@@ -38,6 +40,7 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
 
     RUST_LOG=info cargo run #with logging
    ```
+
 ## Usage
 To interact with the chatbot, send a `POST` request to the `/assistant` endpoint with a JSON payload containing the `chat_id` and `message`.
 Example `curl` request:
@@ -46,12 +49,16 @@ curl -X POST http://localhost:3000/assistant \
 -H "Content-Type: application/json" \
 -d '{"user_id": "user_123", "message": "Hello, I am looking for a used bike."}'
 ```
+
 ## API Endpoints
 - `POST /chat`: Send a message to the chatbot and receive a response.
+
 ## Contributing
 Contributions are welcome! Please feel free to submit a pull request.
+
 ## License
 This project is licensed under the [MIT License](LICENSE).
+
 ## Acknowledgments
 - Thanks to the [Axum](https://github.com/tokio-rs/axum) team for creating a great web framework.
 - This project uses the [OpenAI API](https://beta.openai.com/) for generating chatbot responses.
