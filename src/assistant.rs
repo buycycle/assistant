@@ -429,6 +429,7 @@ pub async fn create_assistant(
     assistant_name: &str,
     model: &str,
     instructions: &str,
+    instructions_file_path: &Option<String>,
     file_ids: &Vec<String>,
 ) -> Result<Assistant, AssistantError> {
     let mut assistant = Assistant {
@@ -436,12 +437,17 @@ pub async fn create_assistant(
         name: assistant_name.to_string(),
         model: model.to_string(),
         instructions: instructions.to_string(),
+        instructions_file_path: instructions_file_path.clone(),
     };
     // Initialize the assistant by creating it on the OpenAI platform
     assistant.initialize().await?;
     info!("Assistant created with ID: {}", assistant.id);
     // Attach the uploaded files to the assistant using the file IDs from the Files struct
     assistant.attach_files(file_ids).await?;
+    // If instructions_file_path is set, update the assistant's instructions from the file
+    if assistant.instructions_file_path.is_some() {
+        assistant.instructions_from_file().await?;
+    }
     Ok(assistant)
 }
 

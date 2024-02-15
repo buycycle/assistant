@@ -73,7 +73,7 @@ Use this python code to filter out recommended bikes:
 import json
 
 
-with open("/mnt/data/file-YLAbu3oQEuda55fYaz03XBl9" + path_bikes, "r") as file:
+with open("/mnt/data/file-YLAbu3oQEuda55fYaz03XBl9", "r") as file:
     bikes_data = json.load(file)
 
 # Filter bikes based on category, budget, rider height, and color
