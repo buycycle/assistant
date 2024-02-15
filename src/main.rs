@@ -1,5 +1,5 @@
 mod assistant;
-use assistant::{assistant_chat_handler, create_assistant, create_files, DB};
+use assistant::{assistant_chat_handler, create_assistant, create_ressources, DB};
 use axum::{extract::Extension, routing::post, Router};
 use dotenv::dotenv;
 use sqlx::SqlitePool;
@@ -15,10 +15,13 @@ async fn main() {
     env_logger::init();
     dotenv().ok();
     // Create the files for the assistant.
-    let files = match create_files("context", Vec::new()).await {
-        Ok(files) => files,
+    let ressources = match create_ressources("context",
+                                        Vec::new(),
+                                        "data/instructions.txt",
+                                        ).await {
+        Ok(ressources) => ressources,
         Err(e) => {
-            log::error!("Failed to create files: {:?}", e);
+            log::error!("Failed to create ressoures: {:?}", e);
             std::process::exit(1);
         }
     };
@@ -26,10 +29,8 @@ async fn main() {
     let assistant = match create_assistant(
         "My Assistant",
         "gpt-4-turbo-preview",
-        "On buycycle.com, users can buy and sell pre-owned bicycles.
-        Help the users with how the website works, use the faq.html for referral links.",
-        &Some("data/prompt.txt".to_string()), //overwrites instructions with file content
-        &files.file_ids,
+        ressources,
+
     )
     .await
     {

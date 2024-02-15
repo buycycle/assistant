@@ -114,14 +114,23 @@ pub struct SimplifiedMessage {
 #[derive(Deserialize)]
 struct FileUploadResponse {
     id: String,
+    filename: String,
 }
 
-pub struct Files {
-    pub file_ids: Vec<String>,
+pub struct FileInfo {
+    pub file_id: String,
+    pub file_name: String,
+}
+
+pub struct Ressources {
+    pub files_info: Vec<FileInfo>,
     folder_path: String,
     scrape_urls: Vec<String>,
+    instructions_file_path: String,
+    instructions: String,
 }
-impl Files {
+
+impl Ressources {
     pub async fn scrape_context(&self) -> Result<(), AssistantError> {
         let client = Client::new();
         let folder_path = Path::new(&self.folder_path);
@@ -174,7 +183,7 @@ impl Files {
                 let file_content =
                     fs::read(&path).map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
                 // Extract and transform file name, handle errors
-                let file_name = path
+                let filename = path
                     .file_name()
                     .ok_or_else(|| {
                         AssistantError::OpenAIError("Failed to get file name".to_string())
@@ -187,7 +196,7 @@ impl Files {
                     })?
                     .to_owned(); // Convert &str to String
                 let part = Part::bytes(file_content)
-                    .file_name(file_name)
+                    .file_name(filename)
                     .mime_str("application/octet-stream")?;
                 let form = Form::new().part("file", part).text("purpose", "assistants");
                 let response = client
@@ -200,11 +209,12 @@ impl Files {
                 match response {
                     // Case when the HTTP request is successful and the status code indicates success
                     Ok(res) if res.status().is_success() => {
-                        // Attempt to deserialize the response body into FileUploadResponse
                         if let Ok(file_response) = res.json::<FileUploadResponse>().await {
-                            self.file_ids.push(file_response.id);
+                            self.files_info.push(FileInfo {
+                                file_id: file_response.id,
+                                file_name: file_response.filename, // Use the filename from the response
+                            });
                         } else {
-                            // If deserialization fails, return an error indicating the failure
                             return Err(AssistantError::OpenAIError(
                                 "Failed to parse response from OpenAI".to_string(),
                             ));
@@ -225,14 +235,27 @@ impl Files {
         // If all iterations complete without error, return Ok to indicate success
         Ok(())
     }
+    /// create instructions text from the instructions file by replacing the {files_name} placeholders with the file_ids
+    async fn create_instructions(&mut self) -> Result<(), AssistantError> {
+        let mut instructions = fs::read_to_string(&self.instructions_file_path)
+            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+        // Replace any placeholders in the instructions text that match the {file_name} with the file_id
+        for file_info in &self.files_info {
+            // Perform the replacement directly without checking for placeholder existence
+            instructions = instructions.replace(&format!("{{{}}}", file_info.file_name), &file_info.file_id);
+        }
+        // Assign the modified prompt to the struct's field
+        self.instructions = instructions;
+        Ok(())
+    }
 
     pub async fn delete(&mut self) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
         let client = Client::new();
-        for file_id in &self.file_ids {
+        for file_info in &self.files_info {
             let response = client
-                .delete(format!("https://api.openai.com/v1/files/{}", file_id))
+                .delete(format!("https://api.openai.com/v1/files/{}", file_info.file_id))
                 .bearer_auth(&api_key)
                 .send()
                 .await;
@@ -250,8 +273,12 @@ impl Files {
                 }
             }
         }
-        self.file_ids.clear();
+        self.files_info.clear(); // Clear the files_info vector
         Ok(())
+    }
+    /// Returns a vector of stored file IDs.
+    pub fn get_file_ids(&self) -> Vec<String> {
+        self.files_info.iter().map(|info| info.file_id.clone()).collect()
     }
 }
 /// A struct representing an OpenAI assistant.
@@ -261,7 +288,6 @@ pub struct Assistant {
     name: String,
     model: String,
     instructions: String,
-    instructions_file_path: Option<String>,
 }
 impl Assistant {
     /// create an OpenAI assistant and set the assistant's ID
@@ -336,7 +362,7 @@ impl Assistant {
         }
     }
 
-    pub async fn attach_files(&self, file_ids: &Vec<String>) -> Result<(), AssistantError> {
+    pub async fn attach_files(&self, file_ids: Vec<String>) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
         let client = Client::new();
@@ -363,32 +389,19 @@ impl Assistant {
         }
         Ok(())
     }
-    /// this overwrites the assistant's instructions with the contents of the file
-    pub async fn instructions_from_file(&mut self) -> Result<(), AssistantError> {
-        // Check if the instructions_file_path is set
-        let file_path = match &self.instructions_file_path {
-            Some(path) => path,
-            None => {
-                return Err(AssistantError::OpenAIError(
-                    "Instructions file path not set".to_string(),
-                ))
-            }
-        };
-        // Read the instructions from the file
-        let instructions = fs::read_to_string(file_path)
-            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        // Update the assistant's instructions
+    /// this overwrites the assistant's instructions a str
+    pub async fn update_instructions(&mut self, instructions: &str) -> Result<(), AssistantError> {
+        // Ensure the API key is set
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+
         let client = Client::new();
+
         // Prepare the payload with the new instructions
         let payload = json!({
             "instructions": instructions,
-            "tools": [{"type": "retrieval"}],
-            "model": self.model,
-            // Assuming file_ids are already associated with the assistant
-            // If not, you would need to include them here as well
         });
+
         // Send the request to update the assistant
         let response = client
             .patch(&format!("https://api.openai.com/v1/assistants/{}", self.id))
@@ -398,6 +411,7 @@ impl Assistant {
             .json(&payload)
             .send()
             .await;
+
         // Handle the response
         match response {
             Ok(res) if res.status().is_success() => Ok(()),
@@ -410,49 +424,48 @@ impl Assistant {
     }
 }
 /// scrape urls and upload the resulting files to OpenAI
-pub async fn create_files(
+pub async fn create_ressources(
     folder_path: &str,
     scrape_urls: Vec<String>,
-) -> Result<Files, AssistantError> {
+    instructions_file_path: &str,
+
+) -> Result<Ressources, AssistantError> {
     // Initialize the Files struct directly
-    let mut files = Files {
+    let mut files = Ressources {
+        files_info: Vec::new(), // Use files_info to store FileInfo objects
         folder_path: folder_path.to_string(),
-        file_ids: Vec::new(), // Initially empty, will be filled during file upload
-        scrape_urls,          // Provided scrape URLs
+        scrape_urls,            // Provided scrape URLs
+        instructions_file_path: instructions_file_path.to_string(),
+        instructions: String::new(),
     };
     // Scrape the context from the provided URLs
     files.scrape_context().await?;
     // Upload the scraped files to OpenAI
     files.upload_files().await?;
+    // Create the instructions text by replacing the placeholders with the file IDs
+    files.create_instructions().await?;
     Ok(files)
 }
 pub async fn create_assistant(
     assistant_name: &str,
     model: &str,
-    instructions: &str,
-    instructions_file_path: &Option<String>,
-    file_ids: &Vec<String>,
+    ressources: Ressources,
 ) -> Result<Assistant, AssistantError> {
     let mut assistant = Assistant {
         id: String::new(),
         name: assistant_name.to_string(),
         model: model.to_string(),
-        instructions: instructions.to_string(),
-        instructions_file_path: instructions_file_path.clone(),
+        instructions: ressources.instructions.clone(),
     };
     // Initialize the assistant by creating it on the OpenAI platform
     assistant.initialize().await?;
     info!("Assistant created with ID: {}", assistant.id);
     // Attach the uploaded files to the assistant using the file IDs from the Files struct
-    assistant.attach_files(file_ids).await?;
-    // If instructions_file_path is set, update the assistant's instructions from the file
-    if assistant.instructions_file_path.is_some() {
-        assistant.instructions_from_file().await?;
-    }
+    assistant.attach_files(ressources.get_file_ids()).await?;
     Ok(assistant)
 }
 
-pub async fn teardown(assistant: Assistant, mut files: Files) -> Result<(), AssistantError> {
+pub async fn teardown(assistant: Assistant, mut files: Ressources) -> Result<(), AssistantError> {
     // Delete the assistant on the OpenAI platform
     assistant.delete().await?;
     files.delete().await?;
