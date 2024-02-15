@@ -363,6 +363,7 @@ impl Assistant {
         }
         Ok(())
     }
+    /// this overwrites the assistant's instructions with the contents of the file
     pub async fn instructions_from_file(&mut self) -> Result<(), AssistantError> {
         // Check if the instructions_file_path is set
         let file_path = match &self.instructions_file_path {

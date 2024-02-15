@@ -28,7 +28,7 @@ async fn main() {
         "gpt-4-turbo-preview",
         "On buycycle.com, users can buy and sell pre-owned bicycles.
         Help the users with how the website works, use the faq.html for referral links.",
-        &Some("data/prompt.txt".to_string()),
+        &Some("data/prompt.txt".to_string()), //overwrites instructions with file content
         &files.file_ids,
     )
     .await
