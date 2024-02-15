@@ -164,12 +164,16 @@ impl Files {
         let paths = fs::read_dir(Path::new(&self.folder_path))
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         for path in paths {
+            // Transform DirEntry into PathBuf, handle errors
             let path = path
                 .map_err(|e| AssistantError::DatabaseError(e.to_string()))?
                 .path();
+            // Proceed if the path is a file
             if path.is_file() {
+                // Read file content, handle errors
                 let file_content =
                     fs::read(&path).map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+                // Extract and transform file name, handle errors
                 let file_name = path
                     .file_name()
                     .ok_or_else(|| {
@@ -181,7 +185,7 @@ impl Files {
                             "Failed to convert file name to string".to_string(),
                         )
                     })?
-                    .to_owned();
+                    .to_owned(); // Convert &str to String
                 let part = Part::bytes(file_content)
                     .file_name(file_name)
                     .mime_str("application/octet-stream")?;
@@ -194,25 +198,34 @@ impl Files {
                     .send()
                     .await;
                 match response {
+                    // Case when the HTTP request is successful and the status code indicates success
                     Ok(res) if res.status().is_success() => {
+                        // Attempt to deserialize the response body into FileUploadResponse
                         if let Ok(file_response) = res.json::<FileUploadResponse>().await {
                             self.file_ids.push(file_response.id);
                         } else {
+                            // If deserialization fails, return an error indicating the failure
                             return Err(AssistantError::OpenAIError(
                                 "Failed to parse response from OpenAI".to_string(),
                             ));
                         }
                     }
+                    // Case when the HTTP request is successful but the status code is not a success
                     Ok(res) => {
+                        // Attempt to read the error message from the response body
                         let error_message = res.text().await.unwrap_or_default();
+                        // Return an error with the message from the response or a default message
                         return Err(AssistantError::OpenAIError(error_message));
                     }
+                    // Case when the HTTP request itself fails
                     Err(e) => return Err(AssistantError::OpenAIError(e.to_string())),
                 }
             }
         }
+        // If all iterations complete without error, return Ok to indicate success
         Ok(())
     }
+
     pub async fn delete(&mut self) -> Result<(), AssistantError> {
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
@@ -248,6 +261,7 @@ pub struct Assistant {
     name: String,
     model: String,
     instructions: String,
+    instructions_file_path: Option<String>,
 }
 impl Assistant {
     /// create an OpenAI assistant and set the assistant's ID
@@ -255,6 +269,7 @@ impl Assistant {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+
         let payload = json!({
             "instructions": self.instructions,
             "name": self.name,
@@ -347,6 +362,50 @@ impl Assistant {
             }
         }
         Ok(())
+    }
+    pub async fn instructions_from_file(&mut self) -> Result<(), AssistantError> {
+        // Check if the instructions_file_path is set
+        let file_path = match &self.instructions_file_path {
+            Some(path) => path,
+            None => {
+                return Err(AssistantError::OpenAIError(
+                    "Instructions file path not set".to_string(),
+                ))
+            }
+        };
+        // Read the instructions from the file
+        let instructions = fs::read_to_string(file_path)
+            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+        // Update the assistant's instructions
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let client = Client::new();
+        // Prepare the payload with the new instructions
+        let payload = json!({
+            "instructions": instructions,
+            "tools": [{"type": "retrieval"}],
+            "model": self.model,
+            // Assuming file_ids are already associated with the assistant
+            // If not, you would need to include them here as well
+        });
+        // Send the request to update the assistant
+        let response = client
+            .patch(&format!("https://api.openai.com/v1/assistants/{}", self.id))
+            .header("Content-Type", "application/json")
+            .header("OpenAI-Beta", "assistants=v1")
+            .bearer_auth(&api_key)
+            .json(&payload)
+            .send()
+            .await;
+        // Handle the response
+        match response {
+            Ok(res) if res.status().is_success() => Ok(()),
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(e.to_string())),
+        }
     }
 }
 /// scrape urls and upload the resulting files to OpenAI
