@@ -138,12 +138,11 @@ pub struct Ressources {
 #[derive(FromRow)] // Derive the FromRow trait
 struct Bike {
     category: String,
-    color: String,
-    frame_size_code: String,
-    motor: String,
-    price: i32,
-    rider_height_max: i32,
-    rider_height_min: i32,
+    color: Option<String>, // Changed to Option<String> to handle NULL values
+    frame_size: String,
+    price: f64,
+    rider_height_max: Option<f64>,
+    rider_height_min: Option<f64>,
     slug: String,
 }
 impl Ressources {
@@ -171,8 +170,7 @@ impl Ressources {
         let main_query = "
             SELECT bikes.slug as slug,
                    bike_categories.slug as category,
-                   motor,
-                   bike_additional_infos.frame_size_code as frame_size_code,
+                   bike_additional_infos.frame_size as frame_size,
                    bike_additional_infos.rider_height_min as rider_height_min,
                    bike_additional_infos.rider_height_max as rider_height_max,
                    price,
