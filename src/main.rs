@@ -15,10 +15,7 @@ async fn main() {
     env_logger::init();
     dotenv().ok();
     // Create the files for the assistant.
-    let ressources = match create_ressources("context",
-                                        Vec::new(),
-                                        "data/instructions.txt",
-                                        ).await {
+    let ressources = match create_ressources("context", Vec::new(), "data/instructions.txt").await {
         Ok(ressources) => ressources,
         Err(e) => {
             log::error!("Failed to create ressoures: {:?}", e);
@@ -26,13 +23,7 @@ async fn main() {
         }
     };
     // Create an assistant outside of the main function.
-    let assistant = match create_assistant(
-        "My Assistant",
-        "gpt-4-turbo-preview",
-        ressources,
-
-    )
-    .await
+    let assistant = match create_assistant("My Assistant", "gpt-4-turbo-preview", ressources).await
     {
         Ok(assistant) => assistant,
         Err(e) => {

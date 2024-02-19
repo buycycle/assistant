@@ -1,14 +1,14 @@
-use log::info;
-use std::fs;
-use std::path::Path;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Extension, Json,
 };
+use log::info;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 
 use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
@@ -16,10 +16,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{env, time::Duration};
 
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, FromRow};
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, MySql};
-
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePool},
+    FromRow,
+};
 
 // Define a custom error type that can be converted into an HTTP response.
 #[derive(Debug)]
@@ -134,8 +136,7 @@ pub struct Ressources {
     instructions_file_path: String,
     instructions: String,
 }
-#[derive(Serialize)]
-#[derive(FromRow)] // Derive the FromRow trait
+#[derive(Serialize, FromRow)] // Derive the FromRow trait
 struct Bike {
     category: String,
     color: Option<String>, // Changed to Option<String> to handle NULL values
@@ -147,23 +148,29 @@ struct Bike {
 }
 impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
-        let host = env::var("DB_HOST")
-            .map_err(|_| AssistantError::DatabaseError("DB_HOST environment variable not set".to_string()))?;
-        let port = env::var("DB_PORT")
-            .map_err(|_| AssistantError::DatabaseError("DB_PORT environment variable not set".to_string()))?;
-        let dbname = env::var("DB_NAME")
-            .map_err(|_| AssistantError::DatabaseError("DB_NAME environment variable not set".to_string()))?;
-        let user = env::var("DB_USER")
-            .map_err(|_| AssistantError::DatabaseError("DB_USER environment variable not set".to_string()))?;
-        let password = env::var("DB_PASSWORD")
-            .map_err(|_| AssistantError::DatabaseError("DB_PASSWORD environment variable not set".to_string()))?;
+        let host = env::var("DB_HOST").map_err(|_| {
+            AssistantError::DatabaseError("DB_HOST environment variable not set".to_string())
+        })?;
+        let port = env::var("DB_PORT").map_err(|_| {
+            AssistantError::DatabaseError("DB_PORT environment variable not set".to_string())
+        })?;
+        let dbname = env::var("DB_NAME").map_err(|_| {
+            AssistantError::DatabaseError("DB_NAME environment variable not set".to_string())
+        })?;
+        let user = env::var("DB_USER").map_err(|_| {
+            AssistantError::DatabaseError("DB_USER environment variable not set".to_string())
+        })?;
+        let password = env::var("DB_PASSWORD").map_err(|_| {
+            AssistantError::DatabaseError("DB_PASSWORD environment variable not set".to_string())
+        })?;
 
         // Create the database URL for MySQL
         let database_url = format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, dbname);
 
         // Create a connection pool for MySQL
         let pool: Pool<MySql> = MySqlPoolOptions::new()
-            .connect(&database_url).await
+            .connect(&database_url)
+            .await
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
 
         // Define the query
@@ -183,7 +190,8 @@ impl Ressources {
 
         // Execute the query using sqlx
         let bikes: Vec<Bike> = sqlx::query_as(main_query)
-            .fetch_all(&pool).await
+            .fetch_all(&pool)
+            .await
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
 
         // Serialize the bikes to JSON
@@ -192,8 +200,8 @@ impl Ressources {
 
         // Write the JSON data to a file in the specified folder_path
         let file_path = PathBuf::from(&self.folder_path).join("bikes.json");
-        let mut file = File::create(file_path)
-            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+        let mut file =
+            File::create(file_path).map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         file.write_all(bikes_json_string.as_bytes())
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
 
@@ -310,7 +318,8 @@ impl Ressources {
         // Replace any placeholders in the instructions text that match the {file_name} with the file_id
         for file_info in &self.files_info {
             // Perform the replacement directly without checking for placeholder existence
-            instructions = instructions.replace(&format!("{{{}}}", file_info.file_name), &file_info.file_id);
+            instructions =
+                instructions.replace(&format!("{{{}}}", file_info.file_name), &file_info.file_id);
         }
         // Assign the modified prompt to the struct's field
         self.instructions = instructions;
@@ -323,7 +332,10 @@ impl Ressources {
         let client = Client::new();
         for file_info in &self.files_info {
             let response = client
-                .delete(format!("https://api.openai.com/v1/files/{}", file_info.file_id))
+                .delete(format!(
+                    "https://api.openai.com/v1/files/{}",
+                    file_info.file_id
+                ))
                 .bearer_auth(&api_key)
                 .send()
                 .await;
@@ -346,7 +358,10 @@ impl Ressources {
     }
     /// Returns a vector of stored file IDs.
     pub fn get_file_ids(&self) -> Vec<String> {
-        self.files_info.iter().map(|info| info.file_id.clone()).collect()
+        self.files_info
+            .iter()
+            .map(|info| info.file_id.clone())
+            .collect()
     }
 }
 /// A struct representing an OpenAI assistant.
@@ -496,13 +511,12 @@ pub async fn create_ressources(
     folder_path: &str,
     scrape_urls: Vec<String>,
     instructions_file_path: &str,
-
 ) -> Result<Ressources, AssistantError> {
     // Initialize the Files struct directly
     let mut files = Ressources {
         files_info: Vec::new(), // Use files_info to store FileInfo objects
         folder_path: folder_path.to_string(),
-        scrape_urls,            // Provided scrape URLs
+        scrape_urls, // Provided scrape URLs
         instructions_file_path: instructions_file_path.to_string(),
         instructions: String::new(),
     };
