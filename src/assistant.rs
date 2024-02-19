@@ -1,6 +1,6 @@
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Html},
     Extension, Json,
 };
 use log::info;
@@ -920,4 +920,76 @@ pub async fn assistant_chat_handler(
     Ok(Json(AssistantChatResponse {
         messages: chat.messages,
     }))
+}
+
+pub async fn assistant_chat_handler_html(
+    Extension(db_pool): Extension<SqlitePool>,
+    Extension(assistant_id): Extension<String>,
+    Json(assistant_chat_request): Json<AssistantChatRequest>,
+) -> Result<Html<String>, AssistantError> {
+    let db = DB { pool: db_pool };
+    let user_id = &assistant_chat_request.user_id;
+    let message = &assistant_chat_request.message;
+    // Initialize chat or get existing chat_id
+    let chat_id = match db.get_chat_id(user_id).await? {
+        Some(id) => id,
+        None => {
+            let mut chat = Chat {
+                id: String::new(), // Temporarily set to String::new(), will be updated below
+                messages: Vec::new(),
+            };
+            chat.initialize().await?;
+            let new_chat_id = chat.id; // No need to parse as i64, it's already a String
+            db.save_chat_id(user_id, &new_chat_id).await?;
+            new_chat_id
+        }
+    };
+    // Save the user's message to the database
+    db.save_message_to_db(&chat_id.to_string(), message).await?;
+    // Initialize the chat struct with the correct chat_id type
+    let mut chat = Chat {
+        id: chat_id.to_string(),
+        messages: Vec::new(),
+    };
+    // Send the user's message to the chat
+    chat.add_message(message, "user").await?;
+    // Create a run for the assistant to process the message
+    let mut run = Run {
+        id: String::new(),
+        status: String::new(),
+    };
+    run.create(&chat.id, &assistant_id).await?;
+    // Check the status of the run until it's completed or a timeout occurs
+    let start_time = std::time::Instant::now();
+    while start_time.elapsed().as_secs() < 120 {
+        run.get_status(&chat.id).await?; // This sets the run.status field
+        if run.status == "completed" {
+            info!("Run completed, status: {}", run.status);
+            break;
+        }
+        info!("Run not completed, current status: {}", run.status);
+        // Sleep for a short duration before checking the status again
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    }
+    // Use the run.status field for the final check
+    if run.status != "completed" {
+        return Err(AssistantError::OpenAIError(
+            "Run did not complete in time".to_string(),
+        ));
+    }
+    // Retrieve the last message from the conversation, which should be the assistant's response
+    chat.get_messages(true).await?;
+    // Assuming the last message is the assistant's response, create an HTML snippet
+    if let Some(assistant_response) = chat.messages.last() {
+        let response_html = format!(
+            "<li><strong>Assistant:</strong> {}</li>",
+            assistant_response.text
+        );
+        Ok(Html(response_html))
+    } else {
+        Err(AssistantError::OpenAIError(
+            "No response from the assistant".to_string(),
+        ))
+    }
+
 }

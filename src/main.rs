@@ -1,6 +1,8 @@
 mod assistant;
 use assistant::{assistant_chat_handler, create_assistant, create_ressources, DB};
-use axum::{extract::Extension, routing::post, Router};
+use axum::{extract::Extension, routing::post, routing::get_service, Router};
+use tower_http::services::ServeDir;
+use std::net::SocketAddr;
 use dotenv::dotenv;
 use sqlx::SqlitePool;
 // Define a function to create the Axum app with the database pool and assistant.
@@ -39,13 +41,29 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let db_pool = db.pool; // Extract the SqlitePool from the DB struct
-                           // Run database migrations here if necessary
-                           // sqlx::migrate!("./migrations").run(&db_pool).await.expect("Failed to run database migrations");
-                           // Bind the server to an address and start it.
-    let server = tokio::net::TcpListener::bind(&"0.0.0.0:3000")
+    let db_pool = db.pool;
+    // Define the app with routes and static file serving
+    let app = Router::new()
+        .route("/assistant", post(assistant_chat_handler))
+        .nest(
+            "/", // Serve static files at the root of the domain
+            get_service(ServeDir::new("static")).handle_error(|error| async move {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Unhandled internal error: {}", error),
+                )
+            }),
+        )
+        .layer(Extension(db_pool))
+        .layer(Extension(assistant.id));
+    // Define the address to serve on
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    // Run the server
+    Server::bind(&addr)
+        .serve(app.into_make_service())
         .await
-        .expect("Failed to bind server to address");
+        .expect("Failed to start server");
+
     let router = app(db_pool, assistant.id).await; // Pass the assistant ID to the app
     axum::serve(server, router.into_make_service())
         .await
