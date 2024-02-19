@@ -4,8 +4,6 @@ use std::path::Path;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use urlencoding::encode;
-use tokio_postgres::NoTls;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -18,7 +16,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{env, time::Duration};
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}, FromRow};
+use sqlx::Pool;
+use sqlx::{mysql::MySqlPoolOptions, MySql};
+
 
 // Define a custom error type that can be converted into an HTTP response.
 #[derive(Debug)]
@@ -134,19 +135,19 @@ pub struct Ressources {
     instructions: String,
 }
 #[derive(Serialize)]
+#[derive(FromRow)] // Derive the FromRow trait
 struct Bike {
-    slug: String,
     category: String,
-    motor: String,
-    frame_size_code: String,
-    rider_height_min: i32,
-    rider_height_max: i32,
-    price: i32,
     color: String,
+    frame_size_code: String,
+    motor: String,
+    price: i32,
+    rider_height_max: i32,
+    rider_height_min: i32,
+    slug: String,
 }
 impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
-        // Retrieve database credentials from environment variables
         let host = env::var("DB_HOST")
             .map_err(|_| AssistantError::DatabaseError("DB_HOST environment variable not set".to_string()))?;
         let port = env::var("DB_PORT")
@@ -157,21 +158,17 @@ impl Ressources {
             .map_err(|_| AssistantError::DatabaseError("DB_USER environment variable not set".to_string()))?;
         let password = env::var("DB_PASSWORD")
             .map_err(|_| AssistantError::DatabaseError("DB_PASSWORD environment variable not set".to_string()))?;
-        let encoded_password = encode(&password);
 
+        // Create the database URL for MySQL
         let database_url = format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, dbname);
-        let (client, connection) =
-            tokio_postgres::connect(&database_url, NoTls).await
+
+        // Create a connection pool for MySQL
+        let pool: Pool<MySql> = MySqlPoolOptions::new()
+            .connect(&database_url).await
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        // The connection object performs the actual communication with the database,
-        // so spawn it off to run on its own.
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
-            }
-        });
+
         // Define the query
-        let main_query = r#"
+        let main_query = "
             SELECT bikes.slug as slug,
                    bike_categories.slug as category,
                    motor,
@@ -184,35 +181,24 @@ impl Ressources {
             JOIN bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
             JOIN bike_categories ON bikes.bike_category_id = bike_categories.id
             WHERE bikes.status = 'active'
-        "#;
-        // Execute the query
-        let stmt = client.prepare(main_query).await
+        ";
+
+        // Execute the query using sqlx
+        let bikes: Vec<Bike> = sqlx::query_as(main_query)
+            .fetch_all(&pool).await
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        let rows = client.query(&stmt, &[]).await
-            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        // Convert the tokio_postgres::Row into your serializable struct.
-        let bikes: Vec<Bike> = rows
-            .iter()
-            .map(|row| Bike {
-                slug: row.get("slug"),
-                category: row.get("category"),
-                motor: row.get("motor"),
-                frame_size_code: row.get("frame_size_code"),
-                rider_height_min: row.get("rider_height_min"),
-                rider_height_max: row.get("rider_height_max"),
-                price: row.get("price"),
-                color: row.get("color"),
-            })
-            .collect();
+
         // Serialize the bikes to JSON
         let bikes_json_string = serde_json::to_string_pretty(&bikes)
             .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+
         // Write the JSON data to a file in the specified folder_path
         let file_path = PathBuf::from(&self.folder_path).join("bikes.json");
         let mut file = File::create(file_path)
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         file.write_all(bikes_json_string.as_bytes())
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+
         Ok(())
     }
     pub async fn scrape_context(&self) -> Result<(), AssistantError> {
