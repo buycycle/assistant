@@ -1,6 +1,6 @@
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Response, Html},
+    response::{Html, IntoResponse, Response},
     Extension, Json,
 };
 use log::info;
@@ -991,5 +991,4 @@ pub async fn assistant_chat_handler_html(
             "No response from the assistant".to_string(),
         ))
     }
-
 }

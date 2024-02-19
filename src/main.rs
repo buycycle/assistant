@@ -1,10 +1,10 @@
 mod assistant;
 use assistant::{assistant_chat_handler, create_assistant, create_ressources, DB};
-use axum::{extract::Extension, routing::post, routing::get_service, Router};
-use tower_http::services::ServeDir;
-use std::net::SocketAddr;
+use axum::{extract::Extension, routing::get_service, routing::post, Router};
 use dotenv::dotenv;
 use sqlx::SqlitePool;
+use std::net::SocketAddr;
+use tower_http::services::ServeDir;
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
     Router::new()
