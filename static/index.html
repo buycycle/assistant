@@ -2,22 +2,43 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Chat with Assistant</title>
+    <title>Chat with buycycle assistant</title>
     <script src="https://unpkg.com/htmx.org"></script>
 </head>
 <body>
-    <h1>Buycycle Assistant</h1>
-    <input id="user-id" type="text" placeholder="User ID" />
+    <h1>buycycle assistant</h1>
+    <input id="user_id" type="text" placeholder="user_id" />
     <input id="message" type="text" placeholder="Type your message here..." />
-    <button id="send" hx-post="/assistant" hx-vals='javascript:{"user_id": document.getElementById("user-id").value, "message": document.getElementById("message").value}' hx-target="#messages" hx-swap="beforeend" hx-after-request="clearMessage()">Send</button>
-    <div id="chat-window">
+    <button id="send" hx-post="/assistant" hx-vals='javascript:{"user_id": document.getElementById("user_id").value, "message": document.getElementById("message").value}' hx-target="#messages" hx-swap="beforeend" hx-after-request="clearMessage()">Send</button>
+    <div id="chat-window" style="height: 300px; overflow-y: auto;">
         <ul id="messages"></ul>
     </div>
     <script>
     function clearMessage() {
-        document.getElementById('message').value = '';
+        // Get the message input and chat window elements
+        var messageInput = document.getElementById('message');
+        var chatWindow = document.getElementById('chat-window');
+        var messagesList = document.getElementById('messages');
+        // Append the user's message to the chat window
+        var userMessage = document.createElement('li');
+        userMessage.textContent = 'You: ' + messageInput.value;
+        messagesList.appendChild(userMessage);
+        // Clear the message input field
+        messageInput.value = '';
+        // Scroll to the bottom of the chat window to show the latest message
+        chatWindow.scrollTop = chatWindow.scrollHeight;
     }
+    // Listen for htmx events to handle the response
+    document.body.addEventListener('htmx:afterOnLoad', function(event) {
+        var chatWindow = document.getElementById('chat-window');
+        var messagesList = document.getElementById('messages');
+        // Append the assistant's response to the chat window
+        var assistantResponse = document.createElement('li');
+        assistantResponse.textContent = 'Assistant: ' + event.detail.elt.innerText;
+        messagesList.appendChild(assistantResponse);
+        // Scroll to the bottom of the chat window to show the latest message
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    });
     </script>
 </body>
 </html>
-

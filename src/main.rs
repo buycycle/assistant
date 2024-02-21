@@ -1,5 +1,5 @@
 mod assistant;
-use assistant::{assistant_chat_handler, create_assistant, create_ressources, DB};
+use assistant::{assistant_chat_handler_form, create_assistant, create_ressources, DB};
 use axum::{extract::Extension, routing::get_service, routing::post, Router};
 use dotenv::dotenv;
 use sqlx::SqlitePool;
@@ -10,7 +10,7 @@ use reqwest::StatusCode;
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
     Router::new()
-        .route("/assistant", post(assistant_chat_handler)) // Updated route
+        .route("/assistant", post(assistant_chat_handler_form)) // Updated route
         .nest_service(
             "/", // Serve static files at the root of the domain
             get_service(ServeDir::new("static"))
