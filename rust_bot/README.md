@@ -51,9 +51,7 @@ curl -X POST http://localhost:3000/assistant \
 ```
 
 ## API Endpoints
-- `POST /chat`: Send a message to the chatbot and receive a response.
-
-### Development Environment
+- `POST /chat`: Send a message to the chatbot and receive a response.### Development Environment
 To build and run the chatbot application in a development environment with Docker, use the following commands:
 1. Build the Docker image for development:
    ```sh
