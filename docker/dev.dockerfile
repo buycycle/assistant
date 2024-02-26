@@ -15,7 +15,6 @@ RUN cargo install cargo-watch
 COPY rust_bot/src src
 COPY rust_bot/static static
 COPY rust_bot/data data
-COPY rust_bot/context context
 COPY rust_bot/tests tests
 # Expose the port the application listens on
 EXPOSE 3000
