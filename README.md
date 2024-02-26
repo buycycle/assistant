@@ -46,8 +46,8 @@ To interact with the chatbot, send a `POST` request to the `/assistant` endpoint
 Example `curl` request:
 ```sh
 curl -X POST http://localhost:3000/assistant \
--H "Content-Type: application/json" \
--d '{"user_id": "user_123", "message": "Hello, I am looking for a used bike."}'
+-H "Content-Type: application/x-www-form-urlencoded" \
+-d 'user_id=user_123&message=Hello%2C%20I%20am%20looking%20for%20a%20used%20bike.'
 ```
 
 ## API Endpoints
