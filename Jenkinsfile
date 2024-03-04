@@ -43,8 +43,6 @@ pipeline {
         }
         stage('Test') {
             when {
-                not { changeset pattern: "Jenkinsfile" }
-                not { changeset pattern: "Makefile" }
                 expression { !skipTests } // Only run tests if skipTests is false
             }
             steps {
@@ -56,10 +54,6 @@ pipeline {
             }
         }
         stage('Push Docker image') {
-            when {
-                not { changeset pattern: "Jenkinsfile" }
-                not { changeset pattern: "Makefile" }
-            }
             steps {
                 withCredentials([string(credentialsId: 'recommendation-ecr-url', variable: 'ECR_URL')]) {
                     script {
@@ -72,19 +66,11 @@ pipeline {
             }
         }
         stage("Modify HELM chart") {
-            when {
-                not { changeset pattern: "Jenkinsfile" }
-                not { changeset pattern: "Makefile" }
-            }
             steps {
                 sh "make push IMAGE_TAG=${image_tag} ENV=${environment}"
             }
         }
         stage("Sync Chart") {
-            when {
-                not { changeset pattern: "Jenkinsfile" }
-                not { changeset pattern: "Makefile" }
-            }
             steps {
                 withCredentials([string(credentialsId: 'argocd-token', variable: 'TOKEN')]) {
                     script {
