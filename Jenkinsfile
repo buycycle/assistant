@@ -42,6 +42,7 @@ pipeline {
             }
         }
         stage('Test') {
+            when {
                 expression { !skipTests } // Only run tests if skipTests is false
             }
             steps {
@@ -63,7 +64,7 @@ pipeline {
                     }
                 }
             }
-}
+        }
         stage("Modify HELM chart") {
             steps {
                 sh "make push IMAGE_TAG=${image_tag} ENV=${environment}"
