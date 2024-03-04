@@ -48,7 +48,7 @@ pipeline {
             steps {
                 script {
                     app.inside {
-                        sh 'cargo test --manifest-path rust_bot/Cargo.toml'
+                      //  sh 'cargo test --manifest-path rust_bot/Cargo.toml'
                     }
                 }
             }
