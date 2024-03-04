@@ -3,13 +3,15 @@ services:
   rust_bot:
     build:
       context: .
-      dockerfile: docker/dev.dockerfile # Specify the correct Dockerfile name
+      dockerfile: docker/dev.dockerfile
     ports:
-      - "3000:3000" # Map the host port to the container port
+      - "3000:3000"
     volumes:
-      - ./rust_bot/static:/usr/local/bin/static # Assuming you have a local directory named rust_bot/static
-      - ./rust_bot/data:/usr/local/bin/data # Assuming you have a local directory named rust_bot/data
+      - ./rust_bot/static:/usr/local/bin/static
+      - ./rust_bot/data:/usr/local/bin/data
+      - ./rust_bot/sqlite.db:/usr/local/bin/sqlite.db
+      - ./rust_bot/.env:/usr/local/bin/.env # Mount the .env file
     environment:
-      - RUST_LOG=info # Set environment variables if needed
-    restart: unless-stopped # Restart policy for the container
+      - RUST_LOG=info
+    restart: unless-stopped
 

@@ -10,7 +10,7 @@
     <input id="user_id" type="text" placeholder="user_id" />
     <input id="message" type="text" placeholder="Type your message here..." />
     <button id="send" hx-post="/assistant" hx-vals='javascript:{"user_id": document.getElementById("user_id").value, "message": document.getElementById("message").value}' hx-target="#messages" hx-swap="beforeend" hx-trigger="click">Send</button>
-    <div id="chat-window" style="height: 300px; overflow-y: auto;">
+    <div id="chat-window" style="height: 600px; overflow-y: auto;">
         <ul id="messages"></ul>
     </div>
     <script>
