@@ -38,11 +38,10 @@ pipeline {
                 }
                 script {
                     if (environment == "live") {
-                        app = docker.build("recommendation-api", "-f docker/main.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg AB=${ab} .")
+                        app = docker.build("chat-bot", "-f docker/main.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg AB=${ab} .")
                     } else {
-                        app = docker.build("recommendation-api", "-f docker/dev.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg AB=${ab} .")
+                        app = docker.build("chat-bot", "-f docker/dev.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg AB=${ab} .")
                     }
-                    test = docker.build("recommendation-api-test", "-f docker/test.dockerfile .")
                 }
             }
         }
@@ -55,10 +54,8 @@ pipeline {
             steps {
                 script {
                     test.inside {
-                        sh 'mkdir -p data'
-                        sh 'python create_data.py'
-                        sh 'python -m unittest discover'
-                        sh 'pytest -v'
+                        sh 'cd rust_bot'
+                        sh 'cargo test'
                     }
                 }
             }
@@ -100,8 +97,8 @@ pipeline {
                     }
                     sh '''
                       set +x
-                      argocd app sync recommendation-api-$namespace --server argocd.cube-gebraucht.com --auth-token $TOKEN
-                      argocd app wait recommendation-api-$namespace --server argocd.cube-gebraucht.com --auth-token $TOKEN
+                      argocd app sync chat-bot-$namespace --server argocd.cube-gebraucht.com --auth-token $TOKEN
+                      argocd app wait chat-bot-$namespace --server argocd.cube-gebraucht.com --auth-token $TOKEN
                     '''
                 }
             }
