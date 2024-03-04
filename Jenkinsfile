@@ -33,8 +33,8 @@ pipeline {
                 not { changeset pattern: "Makefile" }
             }
             steps {
-                withCredentials([string(credentialsId: 'recommendation-s3-path-credential', variable: 'S3_CONFIG_PATH')]) {
-                    sh "aws s3 cp ${S3_CONFIG_PATH} config/config.ini"
+                withCredentials([string(credentialsId: 'bot-env', variable: 'S3_ENV_PATH')]) {
+                    sh "aws s3 cp ${S3_ENV_PATH} rust_bot/.env"
                 }
                 script {
                     if (environment == "live") {
