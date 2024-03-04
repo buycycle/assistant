@@ -1,7 +1,7 @@
 use axum::{
     extract::Form as AxumForm,
     http::StatusCode,
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use log::info;

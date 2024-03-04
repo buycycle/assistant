@@ -5,7 +5,7 @@ use dotenv::dotenv;
 use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 
-use reqwest::StatusCode;
+
 
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
