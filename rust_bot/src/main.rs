@@ -13,8 +13,8 @@ async fn app(db_pool: SqlitePool, assistant_id: String) -> Router {
         .route("/assistant", post(assistant_chat_handler_form)) // Updated route
         .nest_service(
             "/", // Serve static files at the root of the domain
-            get_service(ServeDir::new("static"))
-            )
+            get_service(ServeDir::new("static")),
+        )
         .layer(Extension(db_pool))
         .layer(Extension(assistant_id)) // Add the assistant ID as a layer
 }

@@ -1,5 +1,8 @@
 use axum::{
-    extract::Form as AxumForm, http::StatusCode, response::{Html, IntoResponse, Response}, Extension, Json
+    extract::Form as AxumForm,
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
+    Extension, Json,
 };
 use log::info;
 use std::fs;
