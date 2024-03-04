@@ -28,10 +28,6 @@ pipeline {
     }
     stages {
         stage('Build') {
-            when {
-                not { changeset pattern: "Jenkinsfile" }
-                not { changeset pattern: "Makefile" }
-            }
             steps {
                 withCredentials([string(credentialsId: 'bot-env', variable: 'S3_ENV_PATH')]) {
                     sh "aws s3 cp ${S3_ENV_PATH} rust_bot/.env"
