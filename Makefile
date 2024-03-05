@@ -25,7 +25,7 @@ build-docker:
 
 # Deployment
 
-APP_NAME := recommendation
+APP_NAME := bot
 VALUES_FILE = values.yaml
 CLONE_DIR := /tmp/$(APP_NAME)/$(ENV)
 REPO_NAME := buycycle-helm
