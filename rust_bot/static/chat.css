@@ -1,31 +1,31 @@
     #user_id, #message {
+        margin: 10px;
         border: none;
-        width: 70%;
         box-sizing: border-box;
         margin-bottom: 10px;
     }
     #chat-window {
-        width: 70%;
-        height: 600px;
+        margin: 10px;
+        height: 550px;
         overflow-y: auto;
         background-color: #f7f7f7;
         padding: 10px;
         border-radius: 5px;
     }
     #messages {
+        margin: 10px;
         list-style: none;
-        padding: 0;
+        padding: 10px;
     }
     #messages li {
-        width: 70%;
-        margin-bottom: 10px;
         padding: 10px;
         background-color: #fff;
         border-radius: 5px;
     }
     #send {
+        margin: 10px;
+        margin-bottom: 10px;
         background-color: black;
-        width: 70%;
         color: white;
         padding: 10px 20px;
         border: none;
@@ -64,12 +64,10 @@
 
     #info-container {
         position: absolute;
-        top: 0;
-        right: 0;
+        bottom: 0;
         margin: 10px;
         padding: 10px;
         background-color: #f9f9f9; /* example background color */
         border: 1px solid #ddd; /* example border */
         border-radius: 4px; /* example border radius */
-        width: 28%; /* example width */
     }
