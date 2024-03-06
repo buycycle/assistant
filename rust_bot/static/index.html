@@ -4,51 +4,78 @@
     <meta charset="UTF-8">
     <title>Chat with buycycle assistant</title>
     <script src="https://unpkg.com/htmx.org"></script>
+    <!-- Styles from buycycle -->
+    <link href="https://buycycle.com/css/app.css?id=7799b3e9f3ed63d0d85825a951e1cfe4" rel="stylesheet">
+    <link href="https://buycycle.com/css/img-loader.css" rel="stylesheet">
+    <link rel="stylesheet" href="/css/home.css?id=f83f78b0efa2f91a1eb1331aa58816a1">
+    <!-- Custom styles for chat -->
+    <style>
+        #user_id, #message {
+            border: none;
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        #message {
+            height: 4em;
+            resize: none;
+        }
+        #chat-window {
+            height: 600px;
+            overflow-y: auto;
+            background-color: #f7f7f7; /* Example background color */
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #messages {
+            list-style: none;
+            padding: 0;
+        }
+        #messages li {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #fff; /* Example message background color */
+            border-radius: 5px;
+        }
+    </style>
 </head>
 <body>
-    <h1>buycycle assistant 🤖</h1>
-    <input id="user_id" type="text" placeholder="user_id" />
-    <input id="message" type="text" placeholder="Type your message here..." />
-    <button id="send" hx-post="/assistant" hx-vals='javascript:{"user_id": document.getElementById("user_id").value, "message": document.getElementById("message").value}' hx-target="#messages" hx-swap="beforeend" hx-trigger="click">Send</button>
-    <div id="chat-window" style="height: 600px; overflow-y: auto;">
-        <ul id="messages"></ul>
+    <div id="app" class="page-wrapper">
+        <h1>buycycle assistant</h1>
+        <input id="user_id" type="text" placeholder="Please type your name or other identifier here" />
+        <textarea id="message" placeholder="Type your message here..."></textarea>
+        <button id="send" hx-post="/assistant" hx-vals='javascript:{"user_id": document.getElementById("user_id").value, "message": document.getElementById("message").value}' hx-target="#response-handler" hx-trigger="click">Send</button>
+        <div id="chat-window">
+            <ul id="messages"></ul>
+        </div>
+        <!-- Hidden div to handle the response -->
+        <div id="response-handler" style="display: none;"></div>
     </div>
     <script>
-    // Listen for click event on the send button to clear the message field and display the user's message
     document.getElementById('send').addEventListener('click', function() {
+        var userIdInput = document.getElementById('user_id');
         var messageInput = document.getElementById('message');
         var messagesList = document.getElementById('messages');
         var userMessage = document.createElement('li');
-        var currentTime = new Date(); // Get the current time
-        // Replace newline characters with HTML line breaks
+        var currentTime = new Date();
         var formattedUserText = messageInput.value.replace(/\n/g, '<br>');
-        // Format the user's message with strong tags and include the time
-        userMessage.innerHTML = '<strong>User:</strong> ' + formattedUserText + '<br><small>Sent on: ' + currentTime.toLocaleString() + '</small>';
+        var userId = userIdInput.value || 'User'; // Use 'User' as default if no user_id is provided
+        userMessage.innerHTML = '<strong>' + userId + ':</strong> ' + formattedUserText + '<br><small>Sent on: ' + currentTime.toLocaleString() + '</small>';
         messagesList.appendChild(userMessage);
+        messageInput.value = ''; // Clear the message input field
     });
     document.body.addEventListener('htmx:afterRequest', function(event) {
-        var xhr = event.detail.xhr; // Get the XMLHttpRequest object
-        var response = JSON.parse(xhr.responseText); // Parse the JSON response
+        var xhr = event.detail.xhr;
+        var response = JSON.parse(xhr.responseText);
         var chatWindow = document.getElementById('chat-window');
         var messagesList = document.getElementById('messages');
-        // Format and append the assistant's response to the chat window
-        response.messages.forEach(function(message) {
-            var date = new Date(message.created_at * 1000); // Convert UNIX timestamp to JavaScript Date object
-            var assistantResponse = document.createElement('li');
-            // Replace markdown links with HTML anchor tags
-            var formattedText = message.text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-            // Replace markdown bold with HTML strong tags
-            formattedText = formattedText.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-            // Replace newline characters with HTML line breaks
-            formattedText = formattedText.replace(/\n/g, '<br>');
-            // Format the assistant's message with strong tags and include the time
-            assistantResponse.innerHTML = '<strong>' + message.role.charAt(0).toUpperCase() + message.role.slice(1) + ':</strong> ' + formattedText + '<br><small>Sent on: ' + date.toLocaleString() + '</small>';
-            messagesList.appendChild(assistantResponse);
-        });
-        // Scroll to the bottom of the chat window to show the latest message
+        var message = response.messages[0];
+        var date = new Date(message.created_at * 1000);
+        var assistantResponse = document.createElement('li');
+        assistantResponse.innerHTML = '<strong>' + message.role.charAt(0).toUpperCase() + message.role.slice(1) + ':</strong> ' + message.text + '<br><small>Sent on: ' + date.toLocaleString() + '</small>';
+        messagesList.appendChild(assistantResponse);
         chatWindow.scrollTop = chatWindow.scrollHeight;
     });
-
     </script>
 </body>
 </html>
