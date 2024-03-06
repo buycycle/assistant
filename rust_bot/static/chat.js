@@ -47,6 +47,7 @@
         var message = response.messages[0];
         var date = new Date(message.created_at * 1000);
         var assistantResponse = document.createElement('li');
+        assistantResponse.classList.add('assistant-message'); // Add class for Assistant's messages
         // Format the response text as a list with bold links
         var formattedResponseText = message.text.replace(/\[(.*?)\]\((.*?)\)/g, function(match, text, url) {
             return '<strong><a href="' + url + '" target="_blank">' + text + '</a></strong>';
