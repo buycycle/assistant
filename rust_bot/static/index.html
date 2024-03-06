@@ -9,47 +9,7 @@
     <link href="https://buycycle.com/css/img-loader.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/home.css?id=f83f78b0efa2f91a1eb1331aa58816a1">
     <!-- Custom styles for chat -->
-    <style>
-        #user_id, #message {
-            border: none;
-            width: 100%;
-            box-sizing: border-box;
-            margin-bottom: 10px;
-        }
-        #message {
-            height: 4em;
-            resize: none;
-        }
-        #chat-window {
-            height: 600px;
-            overflow-y: auto;
-            background-color: #f7f7f7; /* Example background color */
-            padding: 10px;
-            border-radius: 5px;
-        }
-        #messages {
-            list-style: none;
-            padding: 0;
-        }
-        #messages li {
-            margin-bottom: 10px;
-            padding: 10px;
-            background-color: #fff; /* Example message background color */
-            border-radius: 5px;
-        }
-        #send {
-            background-color: black; /* Set the background color to black */
-            color: white; /* Set the font color to white */
-            padding: 10px 20px; /* Add some padding */
-            border: none; /* Remove the border */
-            border-radius: 5px; /* Add rounded corners */
-            cursor: pointer; /* Change the cursor to a pointer when hovering over the button */
-            font-size: 1em; /* Set the font size */
-        }
-        #send:hover {
-            background-color: #333; /* Darken the button slightly on hover */
-        }
-    </style>
+    <link rel="stylesheet" href="chat.css">
 </head>
 <body>
     <div id="app" class="page-wrapper">
@@ -63,42 +23,6 @@
         <!-- Hidden div to handle the response -->
         <div id="response-handler" style="display: none;"></div>
     </div>
-    <script>
-    document.getElementById('send').addEventListener('click', sendMessage);
-    function sendMessage() {
-        var userIdInput = document.getElementById('user_id');
-        var messageInput = document.getElementById('message');
-        var messagesList = document.getElementById('messages');
-        var userMessage = document.createElement('li');
-        var currentTime = new Date();
-        var formattedUserText = messageInput.value.replace(/\n/g, '<br>');
-        var userId = userIdInput.value || 'User'; // Use 'User' as default if no user_id is provided
-        userMessage.innerHTML = '<strong>' + userId + ':</strong> ' + formattedUserText + '<br><small>Sent on: ' + currentTime.toLocaleString() + '</small>';
-        messagesList.appendChild(userMessage);
-    }
-    document.getElementById('message').addEventListener('keydown', function(event) {
-        if (event.ctrlKey && event.key === 'Enter') {
-            document.getElementById('send').click();
-        }
-    });
-    document.body.addEventListener('htmx:afterRequest', function(event) {
-        var xhr = event.detail.xhr;
-        var response = JSON.parse(xhr.responseText);
-        var chatWindow = document.getElementById('chat-window');
-        var messagesList = document.getElementById('messages');
-        var message = response.messages[0];
-        var date = new Date(message.created_at * 1000);
-        var assistantResponse = document.createElement('li');
-        assistantResponse.innerHTML = '<strong>' + message.role.charAt(0).toUpperCase() + message.role.slice(1) + ':</strong> ' + message.text + '<br><small>Sent on: ' + date.toLocaleString() + '</small>';
-        messagesList.appendChild(assistantResponse);
-        chatWindow.scrollTop = chatWindow.scrollHeight;
-    });
-    // Clear the message field after the htmx request is successfully processed
-    document.body.addEventListener('htmx:afterOnLoad', function(event) {
-        document.getElementById('message').value = '';
-    });
-
-    </script>
+    <script src="chat.js"></script>
 </body>
 </html>
-
