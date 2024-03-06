@@ -866,6 +866,7 @@ pub async fn assistant_chat_handler(
     Json(assistant_chat_request): Json<AssistantChatRequest>,
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
     let db = DB { pool: db_pool };
+
     let user_id = &assistant_chat_request.user_id;
     let message = &assistant_chat_request.message;
     // Initialize chat or get existing chat_id
@@ -938,6 +939,8 @@ pub async fn assistant_chat_handler_form(
     let db = DB { pool: db_pool };
     let user_id = &assistant_chat_form.user_id;
     let message = &assistant_chat_form.message;
+    // log user_id and message
+    info!("User ID: {}, Message: {}", user_id, message);
     // Initialize chat or get existing chat_id
     let chat_id = match db.get_chat_id(user_id).await? {
         Some(id) => id,
