@@ -1,14 +1,11 @@
     #user_id, #message {
         border: none;
-        width: 100%;
+        width: 70%;
         box-sizing: border-box;
         margin-bottom: 10px;
     }
-    #message {
-        height: 4em;
-        resize: none;
-    }
     #chat-window {
+        width: 70%;
         height: 600px;
         overflow-y: auto;
         background-color: #f7f7f7;
@@ -20,6 +17,7 @@
         padding: 0;
     }
     #messages li {
+        width: 70%;
         margin-bottom: 10px;
         padding: 10px;
         background-color: #fff;
@@ -27,6 +25,7 @@
     }
     #send {
         background-color: black;
+        width: 70%;
         color: white;
         padding: 10px 20px;
         border: none;
@@ -63,3 +62,14 @@
     .dot-flashing:nth-child(2) { animation-delay: 1s; }
     .dot-flashing:nth-child(3) { animation-delay: 1.25s; }
 
+    #info-container {
+        position: absolute;
+        top: 0;
+        right: 0;
+        margin: 10px;
+        padding: 10px;
+        background-color: #f9f9f9; /* example background color */
+        border: 1px solid #ddd; /* example border */
+        border-radius: 4px; /* example border radius */
+        width: 28%; /* example width */
+    }

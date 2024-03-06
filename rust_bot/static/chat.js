@@ -47,11 +47,15 @@
         var message = response.messages[0];
         var date = new Date(message.created_at * 1000);
         var assistantResponse = document.createElement('li');
-        assistantResponse.innerHTML = '<strong>' + message.role.charAt(0).toUpperCase() + message.role.slice(1) + ':</strong> ' + message.text + '<br><small>Sent on: ' + date.toLocaleString() + '</small>';
+        // Format the response text as a list with bold links
+        var formattedResponseText = message.text.replace(/\[(.*?)\]\((.*?)\)/g, function(match, text, url) {
+            return '<strong><a href="' + url + '" target="_blank">' + text + '</a></strong>';
+        });
+        formattedResponseText = formattedResponseText.replace(/(\d+\.\s)/g, '<br>$1'); // Add line breaks before list numbers
+        assistantResponse.innerHTML = '<strong>Assistant:</strong> ' + formattedResponseText + '<br><small>Sent on: ' + date.toLocaleString() + '</small>';
         messagesList.appendChild(assistantResponse);
         chatWindow.scrollTop = chatWindow.scrollHeight;
     });
     // Clear the message field after the htmx request is successfully processed
     document.body.addEventListener('htmx:afterOnLoad', function(event) {
-        // No need to clear the message input here, as it's already cleared after sending the message
     });
