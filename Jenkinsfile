@@ -4,15 +4,10 @@ def map_branch_to_env = [
     "staging": "staging",
     "main": "live"
 ]
-def map_branch_to_ab = [
-    "dev": "canary",
-    "staging": "canary",
-    "main": "stable"
-]
+
 // Set dev as default
 def image_tag = "dev-${env.BUILD_NUMBER}"
 def environment = "dev"
-def ab = "canary"
 // Check the branch name and set variables accordingly
 if (env.BRANCH_NAME == "main" || env.BRANCH_NAME == "staging") {
     image_tag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
@@ -34,9 +29,9 @@ pipeline {
                 }
                 script {
                     if (environment == "live") {
-                        app = docker.build("chat-bot", "-f docker/main.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg AB=${ab} .")
+                        app = docker.build("chat-bot", "-f docker/main.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg .")
                     } else {
-                        app = docker.build("chat-bot", "-f docker/dev.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg AB=${ab} .")
+                        app = docker.build("chat-bot", "-f docker/dev.dockerfile --build-arg ENVIRONMENT=${environment} --build-arg .")
                     }
                 }
             }
