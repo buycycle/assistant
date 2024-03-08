@@ -44,8 +44,15 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
 ## Usage
 To interact with the chatbot, send a `POST` request to the `/assistant` endpoint with a JSON payload containing the `chat_id` and `message`.
 Example `curl` request:
+### local
 ```sh
 curl -X POST http://localhost:3000/assistant \
+-H "Content-Type: application/x-www-form-urlencoded" \
+-d 'user_id=user_123&message=Hello%2C%20I%20am%20looking%20for%20a%20used%20bike.'
+```
+### dev
+```sh
+curl -X POST https://bot.buycycle.com/assistant \
 -H "Content-Type: application/x-www-form-urlencoded" \
 -d 'user_id=user_123&message=Hello%2C%20I%20am%20looking%20for%20a%20used%20bike.'
 ```
