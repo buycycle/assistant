@@ -3,6 +3,8 @@ This is a chatbot application for the buycycle platform, built with [Axum](https
 
 The chatbot is designed to be aware of historical messages, pre-trained on bike knowledge, and integrated with the buycycle stock and user platform interactions.
 
+Check the live version at [assistant.buycycle.com](https://assistant.buycycle.com)
+
 ## Aim
 The aim of the buycycle chatbot is to provide customer support by helping users find a fitting bike and share knowledge about how to use the platform effectively. It leverages OpenAI's GPT-4 to generate contextually aware responses, ensuring a helpful and informative interaction with users.
 
