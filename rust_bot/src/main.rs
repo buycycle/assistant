@@ -31,7 +31,7 @@ async fn main() {
         }
     };
     // Create an assistant outside of the main function.
-    let assistant = match create_assistant("My Assistant", "gpt-4-turbo-preview", ressources).await
+    let assistant = match create_assistant("My Assistant", "gpt-4-1106-preview", ressources).await
     {
         Ok(assistant) => assistant,
         Err(e) => {
