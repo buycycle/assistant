@@ -39,14 +39,10 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    // local database just for testing, will be replace with a real database
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let database_url = if database_url.starts_with("sqlite:") {
-        database_url.trim_start_matches("sqlite:").to_owned()
-    } else {
-        database_url
-    };
-    let db = match DB::create_db_pool(&database_url).await {
+
+    // Create a connection pool for MySQL to the chatbot database where the messages and chat are
+    // saved
+    let db = match DB::create_db_pool().await {
         Ok(db) => db,
         Err(e) => {
             log::error!("Failed to create database pool: {:?}", e);

@@ -15,14 +15,11 @@ use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
 
 use serde_json::json;
-use std::{env, time::Duration};
+use std::env;
 
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, MySql};
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool},
-    FromRow,
-};
+use sqlx::{sqlite::SqlitePool, FromRow};
 
 // Define a custom error type that can be converted into an HTTP response.
 #[derive(Debug)]
@@ -149,24 +146,9 @@ struct Bike {
 }
 impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
-        let host = env::var("DB_HOST").map_err(|_| {
-            AssistantError::DatabaseError("DB_HOST environment variable not set".to_string())
+        let database_url = env::var("DATABASE_URL").map_err(|_| {
+            AssistantError::DatabaseError("DATABASE_URL environment variable not set".to_string())
         })?;
-        let port = env::var("DB_PORT").map_err(|_| {
-            AssistantError::DatabaseError("DB_PORT environment variable not set".to_string())
-        })?;
-        let dbname = env::var("DB_NAME").map_err(|_| {
-            AssistantError::DatabaseError("DB_NAME environment variable not set".to_string())
-        })?;
-        let user = env::var("DB_USER").map_err(|_| {
-            AssistantError::DatabaseError("DB_USER environment variable not set".to_string())
-        })?;
-        let password = env::var("DB_PASSWORD").map_err(|_| {
-            AssistantError::DatabaseError("DB_PASSWORD environment variable not set".to_string())
-        })?;
-
-        // Create the database URL for MySQL
-        let database_url = format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, dbname);
 
         // Create a connection pool for MySQL
         let pool: Pool<MySql> = MySqlPoolOptions::new()
@@ -700,19 +682,19 @@ impl Chat {
 // if no, initialize chat struct, save user_id, chat_id to db table chats and return chat_id
 
 pub struct DB {
-    pub pool: SqlitePool,
+    pub pool: Pool<MySql>,
 }
 
 impl DB {
     /// Creates a new database connection pool.
-    pub async fn create_db_pool(database_url: &str) -> Result<Self, AssistantError> {
-        // Remove the `sqlite:` scheme from the `database_url` if it's present
-        let connect_options = SqliteConnectOptions::new()
-            .filename(database_url) // Set the path to the SQLite database file
-            .create_if_missing(true) // Create the database file if it does not exist
-            .to_owned()
-            .busy_timeout(Duration::from_secs(5)); // Set a busy timeout if needed
-        let pool = SqlitePool::connect_with(connect_options)
+    pub async fn create_db_pool() -> Result<Self, AssistantError> {
+        let database_url = env::var("DATABASE_URL_DEV").map_err(|_| {
+            AssistantError::DatabaseError(
+                "DATABASE_URL_DEV environment variable not set".to_string(),
+            )
+        })?;
+        let pool: Pool<MySql> = MySqlPoolOptions::new()
+            .connect(&database_url)
             .await
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         Ok(DB { pool })
