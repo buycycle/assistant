@@ -23,7 +23,7 @@ async fn main() {
     env_logger::init();
     dotenv().ok();
     // Create the files for the assistant.
-    let ressources = match create_ressources("context", Vec::new(), "data/instructions.txt").await {
+    let ressources = match create_ressources("context", Vec::new(), "instructions/instructions.txt").await {
         Ok(ressources) => ressources,
         Err(e) => {
             log::error!("Failed to create ressoures: {:?}", e);
