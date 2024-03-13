@@ -1,19 +1,20 @@
-# buycycle Chatbot
-This is a chatbot application for the buycycle platform, built with [Axum](https://github.com/tokio-rs/axum), a modular web framework built with the [Tokio](https://tokio.rs/) async runtime for Rust.
-
-The chatbot is designed to be aware of historical messages, pre-trained on bike knowledge, and integrated with the buycycle stock and user platform interactions.
-
+# buycycle Assistant
+This is an assistant application for the buycycle platform, built with [Axum](https://github.com/tokio-rs/axum), a modular web framework built with the [Tokio](https://tokio.rs/) async runtime for Rust. Axum provides the robust backend structure, while htmx and JavaScript are used on the frontend to create a dynamic and responsive user interface.
+The assistant is designed to be inventory and help article aware, providing users with contextually relevant information based on buycycle's resources. It is integrated with the buycycle stock and user platform interactions, and it is aware of historical messages, pre-trained on bike knowledge.
 Check the live version at [assistant.buycycle.com](https://assistant.buycycle.com)
 
 ## Aim
-The aim of the buycycle chatbot is to provide customer support by helping users find a fitting bike and share knowledge about how to use the platform effectively. It leverages OpenAI's GPT-4 to generate contextually aware responses, ensuring a helpful and informative interaction with users.
+The aim of the buycycle assistant is to provide customer support by helping users find a fitting bike and share knowledge about how to use the platform effectively. It leverages OpenAI's GPT-4 to generate contextually aware responses, ensuring a helpful and informative interaction with users.
+The assistant enhances the chat interface with dynamic content loading using htmx, allowing for partial page updates and asynchronous form submissions without full page reloads. This creates a seamless and interactive user experience. Client-side interactivity is further enriched with JavaScript, which is used to handle user events, manipulate the DOM, and perform additional logic that complements the htmx functionality.
 
 ## Features
-- Scrape context files from online ressources.
+- Scrape context files from online resources.
 - RESTful API for handling chat sessions.
-- Integration with OpenAI's GPT-4 for generating chatbot responses.
+- Integration with OpenAI's GPT-4 for generating assistant responses.
 - SQLite database for storing conversation history.
 - Environment-based configuration using `.env` files.
+- Dynamic content loading with htmx for a seamless user experience.
+- Client-side interactivity with JavaScript for enhanced chat functionalities.
 
 ## Requirements
 - Rust 1.56 or higher
@@ -23,7 +24,7 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
 1. Install Rust by following the instructions on the [official website](https://www.rust-lang.org/tools/install).
 2. Clone the repository:
    ```sh
-   git clone https://github.com/buycycle/bot
+   git clone https://github.com/buycycle/assistant
    cd bot
    ```
 3. Create a `.env` file in the root of the project with the following content:
@@ -44,7 +45,7 @@ The aim of the buycycle chatbot is to provide customer support by helping users 
    ```
 
 ## Usage
-To interact with the chatbot, send a `POST` request to the `/assistant` endpoint with a JSON payload containing the `chat_id` and `message`.
+To interact with the assistant, send a `POST` request to the `/assistant` endpoint with a JSON payload containing the `chat_id` and `message`.
 Example `curl` request:
 ### local
 ```sh
@@ -54,14 +55,14 @@ curl -X POST http://localhost:3000/assistant \
 ```
 ### dev
 ```sh
-curl -X POST https://bot.buycycle.com/assistant \
+curl -X POST https://assistant.buycycle.com/assistant \
 -H "Content-Type: application/x-www-form-urlencoded" \
 -d 'user_id=user_123&message=Hello%2C%20I%20am%20looking%20for%20a%20used%20bike.'
 ```
 
 ## API Endpoints
-- `POST /chat`: Send a message to the chatbot and receive a response.### Development Environment
-To build and run the chatbot application in a development environment with Docker, use the following commands:
+- `POST /chat`: Send a message to the assistant and receive a response.### Development Environment
+To build and run the assistant application in a development environment with Docker, use the following commands:
 1. Build the Docker image for development:
    ```sh
    docker build -t buycycle-bot-dev -f docker/dev.dockerfile .
@@ -70,9 +71,9 @@ To build and run the chatbot application in a development environment with Docke
    ```sh
    docker run -it --rm -v "$(pwd)":/usr/src/rust_bot -p 3000:3000 buycycle-bot-dev
    ```
-This will start the chatbot application on port 3000 with live code reloading enabled. Any changes you make to the source code will automatically trigger a recompilation and restart of the application.
+This will start the assistant application on port 3000 with live code reloading enabled. Any changes you make to the source code will automatically trigger a recompilation and restart of the application.
 ### Production (Main) Environment
-To build and run the chatbot application in a production environment with Docker, use the following commands:
+To build and run the assistant application in a production environment with Docker, use the following commands:
 1. Build the Docker image for production:
    ```sh
    docker build -t buycycle-bot-main -f docker/main.dockerfile .
@@ -81,7 +82,7 @@ To build and run the chatbot application in a production environment with Docker
    ```sh
    docker run -d --rm -p 3000:3000 buycycle-bot-main
    ```
-This will start the chatbot application as a detached process on port 8000. The application will run with the optimizations and configurations suitable for a production environment.
+This will start the assistant application as a detached process on port 8000. The application will run with the optimizations and configurations suitable for a production environment.
 
 ## Contributing
 Contributions are welcome! Please feel free to submit a pull request.
@@ -91,6 +92,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Acknowledgments
 - Thanks to the [Axum](https://github.com/tokio-rs/axum) team for creating a great web framework.
-- This project uses the [OpenAI API](https://beta.openai.com/) for generating chatbot responses.
+- This project uses the [OpenAI API](https://beta.openai.com/) for generating assistant responses.
 
 

@@ -13,7 +13,7 @@
 </head>
 <body>
     <div id="app" class="page-wrapper">
-        <h1>buycycle assistant</h1>
+        <h1>buycycle assistant &#x1F4AC;</h1>
         <input id="user_id" type="text" placeholder="Please type your name or other identifier here" />
         <textarea id="message" placeholder="Type your message here..."></textarea>
         <button id="send" hx-post="/assistant" hx-vals='javascript:{"user_id": document.getElementById("user_id").value, "message": document.getElementById("message").value}' hx-target="#response-handler" hx-trigger="click">Send - Ctrl Enter</button>
