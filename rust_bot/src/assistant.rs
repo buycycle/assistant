@@ -18,8 +18,7 @@ use serde_json::json;
 use std::env;
 
 use sqlx::Pool;
-use sqlx::{mysql::MySqlPoolOptions, MySql};
-use sqlx::{sqlite::SqlitePool, FromRow};
+use sqlx::{mysql::MySqlPoolOptions, MySql, MySqlPool, FromRow};
 
 // Define a custom error type that can be converted into an HTTP response.
 #[derive(Debug)]
@@ -131,8 +130,8 @@ pub struct Ressources {
     pub files_info: Vec<FileInfo>,
     folder_path: String,
     scrape_urls: Vec<String>,
-    instructions_file_path: String,
-    instructions: String,
+    instruction_file_path: String,
+    instruction: String,
 }
 #[derive(Serialize, FromRow)] // Derive the FromRow trait
 struct Bike {
@@ -158,16 +157,16 @@ impl Ressources {
 
         // Define the query
         let main_query = "
-            SELECT bikes.slug as slug,
-                   bike_categories.slug as category,
-                   bike_additional_infos.frame_size as frame_size,
-                   bike_additional_infos.rider_height_min as rider_height_min,
-                   bike_additional_infos.rider_height_max as rider_height_max,
-                   price,
-                   color
-            FROM bikes
-            JOIN bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
-            JOIN bike_categories ON bikes.bike_category_id = bike_categories.id
+            SELECT buycycle_2023_01_20.bikes.slug as slug,
+                   buycycle_2023_01_20.bike_categories.slug as category,
+                   buycycle_2023_01_20.bike_additional_infos.frame_size as frame_size,
+                   buycycle_2023_01_20.bike_additional_infos.rider_height_min as rider_height_min,
+                   buycycle_2023_01_20.bike_additional_infos.rider_height_max as rider_height_max,
+                   bikes.price,
+                   bikes.color
+            FROM buycycle_2023_01_20.bikes
+            JOIN buycycle_2023_01_20.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
+            JOIN buycycle_2023_01_20.bike_categories ON bikes.bike_category_id = bike_categories.id
             WHERE bikes.status = 'active'
         ";
 
@@ -294,18 +293,18 @@ impl Ressources {
         // If all iterations complete without error, return Ok to indicate success
         Ok(())
     }
-    /// create instructions text from the instructions file by replacing the {files_name} placeholders with the file_ids
-    async fn create_instructions(&mut self) -> Result<(), AssistantError> {
-        let mut instructions = fs::read_to_string(&self.instructions_file_path)
+    /// create instruction text from the instruction file by replacing the {files_name} placeholders with the file_ids
+    async fn create_instruction(&mut self) -> Result<(), AssistantError> {
+        let mut instruction = fs::read_to_string(&self.instruction_file_path)
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        // Replace any placeholders in the instructions text that match the {file_name} with the file_id
+        // Replace any placeholders in the instruction text that match the {file_name} with the file_id
         for file_info in &self.files_info {
             // Perform the replacement directly without checking for placeholder existence
-            instructions =
-                instructions.replace(&format!("{{{}}}", file_info.file_name), &file_info.file_id);
+            instruction =
+                instruction.replace(&format!("{{{}}}", file_info.file_name), &file_info.file_id);
         }
         // Assign the modified prompt to the struct's field
-        self.instructions = instructions;
+        self.instruction = instruction;
         Ok(())
     }
 
@@ -353,7 +352,7 @@ pub struct Assistant {
     pub id: String,
     name: String,
     model: String,
-    instructions: String,
+    instruction: String,
 }
 impl Assistant {
     /// create an OpenAI assistant and set the assistant's ID
@@ -363,7 +362,7 @@ impl Assistant {
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
 
         let payload = json!({
-            "instructions": self.instructions,
+            "instructions": self.instruction,
             "name": self.name,
             "tools": [
                 {"type": "retrieval"},
@@ -455,17 +454,17 @@ impl Assistant {
         }
         Ok(())
     }
-    /// this overwrites the assistant's instructions a str
-    pub async fn update_instructions(&mut self, instructions: &str) -> Result<(), AssistantError> {
+    /// this overwrites the assistant's instruction a str
+    pub async fn update_instruction(&mut self, instruction: &str) -> Result<(), AssistantError> {
         // Ensure the API key is set
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
 
         let client = Client::new();
 
-        // Prepare the payload with the new instructions
+        // Prepare the payload with the new instruction
         let payload = json!({
-            "instructions": instructions,
+            "instructions": instruction,
         });
 
         // Send the request to update the assistant
@@ -493,15 +492,15 @@ impl Assistant {
 pub async fn create_ressources(
     folder_path: &str,
     scrape_urls: Vec<String>,
-    instructions_file_path: &str,
+    instruction_file_path: &str,
 ) -> Result<Ressources, AssistantError> {
     // Initialize the Files struct directly
     let mut files = Ressources {
         files_info: Vec::new(), // Use files_info to store FileInfo objects
         folder_path: folder_path.to_string(),
         scrape_urls, // Provided scrape URLs
-        instructions_file_path: instructions_file_path.to_string(),
-        instructions: String::new(),
+        instruction_file_path: instruction_file_path.to_string(),
+        instruction: String::new(),
     };
     // Get bikes from the database and save them to a JSON file
     files.bikes_db().await?;
@@ -509,8 +508,8 @@ pub async fn create_ressources(
     files.scrape_context().await?;
     // Upload the scraped files to OpenAI
     files.upload_files().await?;
-    // Create the instructions text by replacing the placeholders with the file IDs
-    files.create_instructions().await?;
+    // Create the instruction text by replacing the placeholders with the file IDs
+    files.create_instruction().await?;
     Ok(files)
 }
 pub async fn create_assistant(
@@ -522,7 +521,7 @@ pub async fn create_assistant(
         id: String::new(),
         name: assistant_name.to_string(),
         model: model.to_string(),
-        instructions: ressources.instructions.clone(),
+        instruction: ressources.instruction.clone(),
     };
     // Initialize the assistant by creating it on the OpenAI platform
     assistant.initialize().await?;
@@ -688,9 +687,9 @@ pub struct DB {
 impl DB {
     /// Creates a new database connection pool.
     pub async fn create_db_pool() -> Result<Self, AssistantError> {
-        let database_url = env::var("DATABASE_URL_DEV").map_err(|_| {
+        let database_url = env::var("DATABASE_URL").map_err(|_| {
             AssistantError::DatabaseError(
-                "DATABASE_URL_DEV environment variable not set".to_string(),
+                "DATABASE_URL environment variable not set".to_string(),
             )
         })?;
         let pool: Pool<MySql> = MySqlPoolOptions::new()
@@ -699,24 +698,20 @@ impl DB {
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         Ok(DB { pool })
     }
-    /// Gets the chat ID for a given user ID.
-    pub async fn get_chat_id(&self, user_id: &String) -> Result<Option<String>, AssistantError> {
+    pub async fn get_chat_id(&self, user_id: &str) -> Result<Option<String>, AssistantError> {
         let result = sqlx::query!(
-            "SELECT id FROM chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT id FROM buycycle_chatbot.chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
             user_id
         )
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        match result {
-            Some(row) => Ok(row.id), // row.id is already an Option<String>
-            None => Ok(None),        // No chat ID found, return None
-        }
+        Ok(result.map(|row| row.id)) // row.id is a String, but result is an Option due to fetch_optional
     }
     /// Saves the chat ID into the database.
     pub async fn save_chat_id(&self, user_id: &str, chat_id: &str) -> Result<(), AssistantError> {
         sqlx::query!(
-            "INSERT INTO chats (id, user_id) VALUES (?, ?)",
+            "INSERT INTO buycycle_chatbot.chats (id, user_id) VALUES (?, ?)",
             chat_id,
             user_id
         )
@@ -733,7 +728,7 @@ impl DB {
         message: &str,
     ) -> Result<(), AssistantError> {
         sqlx::query!(
-            "INSERT INTO messages (chat_id, role, content) VALUES (?, ?)",
+            "INSERT INTO buycycle_chatbot.messages (chat_id, role, content) VALUES (?, ?, ?)",
             chat_id,
             role,
             message
@@ -845,7 +840,7 @@ impl Run {
 /// This function returns an `impl IntoResponse` which is a JSON response containing the updated
 /// conversation history including the assistant's response.
 pub async fn assistant_chat_handler(
-    Extension(db_pool): Extension<SqlitePool>,
+    Extension(db_pool): Extension<MySqlPool>,
     Extension(assistant_id): Extension<String>,
     Json(assistant_chat_request): Json<AssistantChatRequest>,
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
@@ -902,8 +897,11 @@ pub async fn assistant_chat_handler(
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
-    // Save the assistant message to the database
-    db.save_message_to_db(&chat_id.to_string(), "assistant", chat.messages).await?;
+    // Assuming the last message in the vector is the assistant's response and it has a field `text` of type String
+    if let Some(last_message) = chat.messages.last() {
+        // Save the assistant message to the database
+        db.save_message_to_db(&chat_id, "assistant", &last_message.text).await?;
+    }
     // Return the updated conversation history including the assistant's response
     Ok(Json(AssistantChatResponse {
         messages: chat.messages,
@@ -918,7 +916,7 @@ pub struct AssistantChatForm {
 }
 // Handles chat interactions with an OpenAI assistant using form data.
 pub async fn assistant_chat_handler_form(
-    Extension(db_pool): Extension<SqlitePool>,
+    Extension(db_pool): Extension<MySqlPool>,
     Extension(assistant_id): Extension<String>,
     AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>, // Use Form extractor here
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
@@ -942,7 +940,7 @@ pub async fn assistant_chat_handler_form(
         }
     };
     // Save the user's message to the database
-    db.save_message_to_db(&chat_id.to_string(), message).await?;
+    db.save_message_to_db(&chat_id.to_string(), "user", message).await?;
     // Initialize the chat struct with the correct chat_id type
     let mut chat = Chat {
         id: chat_id.to_string(),
@@ -976,6 +974,10 @@ pub async fn assistant_chat_handler_form(
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
+    if let Some(last_message) = chat.messages.last() {
+        // Save the assistant message to the database
+        db.save_message_to_db(&chat_id, "assistant", &last_message.text).await?;
+    }
     // Return the updated conversation history including the assistant's response
     Ok(Json(AssistantChatResponse {
         messages: chat.messages,

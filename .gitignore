@@ -1,4 +1,6 @@
-/target
+rust_bot/target
+rust_bot/context
+rust_bot/operations
 
 .env
 
