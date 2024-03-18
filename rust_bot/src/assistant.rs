@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use chrono::Utc;
 
 use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,9 @@ use std::env;
 
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, MySql, MySqlPool, FromRow};
+
+// Define a constant for the timeout duration of assistant response
+const TIMEOUT_DURATION: u64 = 30;
 
 // Define a custom error type that can be converted into an HTTP response.
 #[derive(Debug)]
@@ -823,90 +827,6 @@ impl Run {
 }
 // think about websockets here
 /// Handles chat interactions with an OpenAI assistant.
-///
-/// This function manages the chat initialization, message sending, and response retrieval.
-/// It initializes a chat or retrieves an existing chat_id, saves the user's message to the db,
-/// sends the message to the chat, creates a run for the assistant to process the message,
-/// waits for its completion, and retrieves the assistant's response.
-///
-/// # Arguments
-///
-/// * `db_pool` - A `SqlitePool` for database connectivity.
-/// * `assistant_chat_request` - A `Json<AssistantChatRequest>` containing the user_id and message.
-/// * `assistant_id` - The identifier of the OpenAI assistant.
-///
-/// # Returns
-///
-/// This function returns an `impl IntoResponse` which is a JSON response containing the updated
-/// conversation history including the assistant's response.
-pub async fn assistant_chat_handler(
-    Extension(db_pool): Extension<MySqlPool>,
-    Extension(assistant_id): Extension<String>,
-    Json(assistant_chat_request): Json<AssistantChatRequest>,
-) -> Result<Json<AssistantChatResponse>, AssistantError> {
-    let db = DB { pool: db_pool };
-
-    let user_id = &assistant_chat_request.user_id;
-    let message = &assistant_chat_request.message;
-    // Initialize chat or get existing chat_id
-    let chat_id = match db.get_chat_id(user_id).await? {
-        Some(id) => id,
-        None => {
-            let mut chat = Chat {
-                id: String::new(), // Temporarily set to String::new(), will be updated below
-                messages: Vec::new(),
-            };
-            chat.initialize().await?;
-            let new_chat_id = chat.id; // No need to parse as i64, it's already a String
-            db.save_chat_id(user_id, &new_chat_id).await?;
-            new_chat_id
-        }
-    };
-    // Save the user's message to the database
-    db.save_message_to_db(&chat_id.to_string(), "user", message).await?;
-    // Initialize the chat struct with the correct chat_id type
-    let mut chat = Chat {
-        id: chat_id.to_string(),
-        messages: Vec::new(),
-    };
-    // Send the user's message to the chat
-    chat.add_message(message, "user").await?;
-    // Create a run for the assistant to process the message
-    let mut run = Run {
-        id: String::new(),
-        status: String::new(),
-    };
-    run.create(&chat.id, &assistant_id).await?;
-    // Check the status of the run until it's completed or a timeout occurs
-    let start_time = std::time::Instant::now();
-    while start_time.elapsed().as_secs() < 120 {
-        run.get_status(&chat.id).await?; // This sets the run.status field
-        if run.status == "completed" {
-            info!("Run completed, status: {}", run.status);
-            break;
-        }
-        info!("Run not completed, current status: {}", run.status);
-        // Sleep for a short duration before checking the status again
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-    }
-    // Use the run.status field for the final check
-    if run.status != "completed" {
-        return Err(AssistantError::OpenAIError(
-            "Run did not complete in time".to_string(),
-        ));
-    }
-    // Retrieve the last message from the conversation, which should be the assistant's response
-    chat.get_messages(true).await?;
-    // Assuming the last message in the vector is the assistant's response and it has a field `text` of type String
-    if let Some(last_message) = chat.messages.last() {
-        // Save the assistant message to the database
-        db.save_message_to_db(&chat_id, "assistant", &last_message.text).await?;
-    }
-    // Return the updated conversation history including the assistant's response
-    Ok(Json(AssistantChatResponse {
-        messages: chat.messages,
-    }))
-}
 
 // Define a struct that represents the form data.
 #[derive(Deserialize)]
@@ -956,7 +876,7 @@ pub async fn assistant_chat_handler_form(
     run.create(&chat.id, &assistant_id).await?;
     // Check the status of the run until it's completed or a timeout occurs
     let start_time = std::time::Instant::now();
-    while start_time.elapsed().as_secs() < 120 {
+    while start_time.elapsed().as_secs() < TIMEOUT_DURATION {
         run.get_status(&chat.id).await?; // This sets the run.status field
         if run.status == "completed" {
             info!("Run completed, status: {}", run.status);
@@ -967,10 +887,18 @@ pub async fn assistant_chat_handler_form(
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
     // Use the run.status field for the final check
+    // If run is not finished save and return a sorry message with the role "error"
     if run.status != "completed" {
-        return Err(AssistantError::OpenAIError(
-            "Run did not complete in time".to_string(),
-        ));
+        // Save the error message to the database
+        db.save_message_to_db(&chat_id, "error", "Sorry I am currently facing some technical issues, please try again.").await?;
+        // Return the error message as part of the response, wrapped in a vector
+        return Ok(Json(AssistantChatResponse {
+            messages: vec![SimplifiedMessage {
+                created_at: Utc::now().timestamp(),
+                role: "error".to_string(),
+                text: "Sorry I am currently facing some technical issues, please try again.".to_string(),
+            }],
+        }));
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
