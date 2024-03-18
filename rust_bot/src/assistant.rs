@@ -729,11 +729,13 @@ impl DB {
     pub async fn save_message_to_db(
         &self,
         chat_id: &str,
+        role: &str,
         message: &str,
     ) -> Result<(), AssistantError> {
         sqlx::query!(
-            "INSERT INTO messages (chat_id, content) VALUES (?, ?)",
+            "INSERT INTO messages (chat_id, role, content) VALUES (?, ?)",
             chat_id,
+            role,
             message
         )
         .execute(&self.pool)
@@ -866,7 +868,7 @@ pub async fn assistant_chat_handler(
         }
     };
     // Save the user's message to the database
-    db.save_message_to_db(&chat_id.to_string(), message).await?;
+    db.save_message_to_db(&chat_id.to_string(), "user", message).await?;
     // Initialize the chat struct with the correct chat_id type
     let mut chat = Chat {
         id: chat_id.to_string(),
@@ -900,6 +902,8 @@ pub async fn assistant_chat_handler(
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
+    // Save the assistant message to the database
+    db.save_message_to_db(&chat_id.to_string(), "assistant", chat.messages).await?;
     // Return the updated conversation history including the assistant's response
     Ok(Json(AssistantChatResponse {
         messages: chat.messages,
