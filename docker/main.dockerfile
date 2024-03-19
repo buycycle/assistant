@@ -12,6 +12,7 @@ RUN mkdir src && \
 # Copy the actual source code
 COPY rust_bot/src src
 COPY rust_bot/static static
+COPY rust_bot/instruction instruction
 COPY rust_bot/context context
 COPY rust_bot/tests tests
 COPY rust_bot/.env .env
@@ -23,6 +24,7 @@ FROM scratch
 COPY --from=builder /usr/src/rust_bot/target/x86_64-unknown-linux-musl/release/rust_bot /rust_bot
 # Copy static files and data if needed
 COPY --from=builder /usr/src/rust_bot/static /static
+COPY --from=builder /usr/src/rust_bot/instruction /instruction
 COPY --from=builder /usr/src/rust_bot/context /context
 COPY --from=builder /usr/src/rust_bot/.env /.env
 # Copy CA certificates
