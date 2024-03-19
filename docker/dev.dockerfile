@@ -19,10 +19,8 @@ COPY rust_bot/sqlite.db sqlite.db
 COPY rust_bot/.env .env
 # Build the application in release mode with musl target
 RUN cargo build --release --target x86_64-unknown-linux-musl
-# Use alpine as the runtime image
-FROM alpine:latest
-# Install CA certificates
-RUN apk --no-cache add ca-certificates
+# Use a minimal runtime image
+FROM scratch
 # Copy the built executable from the builder stage
 COPY --from=builder /usr/src/rust_bot/target/x86_64-unknown-linux-musl/release/rust_bot /rust_bot
 # Copy static files and data if needed
@@ -31,10 +29,11 @@ COPY --from=builder /usr/src/rust_bot/data /data
 COPY --from=builder /usr/src/rust_bot/context /context
 COPY --from=builder /usr/src/rust_bot/sqlite.db /sqlite.db
 COPY --from=builder /usr/src/rust_bot/.env /.env
+# Copy CA certificates
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 # Expose the port the application listens on
 EXPOSE 3000
 # Set the entrypoint to the application executable
 ENTRYPOINT ["/rust_bot"]
-# Since alpine uses 'sh', you can specify a default command to run the shell
-CMD ["/bin/sh"]
+
 
