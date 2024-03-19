@@ -11,7 +11,7 @@ The assistant enhances the chat interface with dynamic content loading using htm
 - Scrape context files from online resources.
 - RESTful API for handling chat sessions.
 - Integration with OpenAI's GPT-4 for generating assistant responses.
-- SQLite database for storing conversation history.
+- Databasei connection for storing conversation history.
 - Environment-based configuration using `.env` files.
 - Dynamic content loading with htmx for a seamless user experience.
 - Client-side interactivity with JavaScript for enhanced chat functionalities.

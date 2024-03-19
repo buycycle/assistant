@@ -14,7 +14,6 @@ COPY rust_bot/src src
 COPY rust_bot/static static
 COPY rust_bot/context context
 COPY rust_bot/tests tests
-COPY rust_bot/sqlite.db sqlite.db
 COPY rust_bot/.env .env
 # Build the application in release mode with musl target
 RUN cargo build --release --target x86_64-unknown-linux-musl
@@ -25,7 +24,6 @@ COPY --from=builder /usr/src/rust_bot/target/x86_64-unknown-linux-musl/release/r
 # Copy static files and data if needed
 COPY --from=builder /usr/src/rust_bot/static /static
 COPY --from=builder /usr/src/rust_bot/context /context
-COPY --from=builder /usr/src/rust_bot/sqlite.db /sqlite.db
 COPY --from=builder /usr/src/rust_bot/.env /.env
 # Copy CA certificates
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
