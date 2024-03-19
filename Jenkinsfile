@@ -29,9 +29,9 @@ pipeline {
                 }
                 script {
                     if (environment == "live") {
-                        app = docker.build("chat-bot", "-f docker/main.dockerfile --build-arg ENVIRONMENT=${environment}")
+                        app = docker.build("chat-bot", "-f docker/main.dockerfile --build-arg ENVIRONMENT=${environment} .")
                     } else {
-                        app = docker.build("chat-bot", "-f docker/dev.dockerfile --build-arg ENVIRONMENT=${environment}")
+                        app = docker.build("chat-bot", "-f docker/dev.dockerfile --build-arg ENVIRONMENT=${environment} .")
                     }
                 }
             }
