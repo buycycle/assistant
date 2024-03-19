@@ -8,7 +8,6 @@ services:
       - "3000:3000"
     volumes:
       - ./rust_bot/static:/usr/local/bin/static
-      - ./rust_bot/data:/usr/local/bin/data
       - ./rust_bot/sqlite.db:/usr/local/bin/sqlite.db
       - ./rust_bot/.env:/usr/local/bin/.env # Mount the .env file
     environment:
