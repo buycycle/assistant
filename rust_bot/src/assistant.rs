@@ -1,16 +1,18 @@
+use tokio::sync::Mutex;
+use std::sync::Arc;
 use axum::{
     extract::Form as AxumForm,
     http::StatusCode,
     response::{IntoResponse, Response},
     Extension, Json,
 };
+use chrono::Utc;
 use log::info;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use chrono::Utc;
 
 use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
@@ -19,7 +21,7 @@ use serde_json::json;
 use std::env;
 
 use sqlx::Pool;
-use sqlx::{mysql::MySqlPoolOptions, MySql, MySqlPool, FromRow};
+use sqlx::{mysql::MySqlPoolOptions, FromRow, MySql, MySqlPool};
 
 // Define a constant for the timeout duration of assistant response
 const TIMEOUT_DURATION: u64 = 30;
@@ -537,7 +539,6 @@ pub async fn create_assistant(
     Ok(assistant)
 }
 
-
 struct Chat {
     id: String,
     messages: Vec<SimplifiedMessage>,
@@ -687,9 +688,7 @@ impl DB {
     /// Creates a new database connection pool.
     pub async fn create_db_pool() -> Result<Self, AssistantError> {
         let database_url = env::var("DATABASE_URL").map_err(|_| {
-            AssistantError::DatabaseError(
-                "DATABASE_URL environment variable not set".to_string(),
-            )
+            AssistantError::DatabaseError("DATABASE_URL environment variable not set".to_string())
         })?;
         let pool: Pool<MySql> = MySqlPoolOptions::new()
             .connect(&database_url)
@@ -830,13 +829,10 @@ pub struct AssistantChatForm {
     pub message: String,
 }
 
-
-
-
 // Handles chat interactions with an OpenAI assistant using form data.
 pub async fn assistant_chat_handler_form(
     Extension(db_pool): Extension<MySqlPool>,
-    Extension(assistant_id): Extension<String>,
+    Extension(assistant_id): Extension<Arc<Mutex<String>>>, // Change this line
     AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>, // Use Form extractor here
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
     let db = DB { pool: db_pool };
@@ -859,7 +855,8 @@ pub async fn assistant_chat_handler_form(
         }
     };
     // Save the user's message to the database
-    db.save_message_to_db(&chat_id.to_string(), "user", message).await?;
+    db.save_message_to_db(&chat_id.to_string(), "user", message)
+        .await?;
     // Initialize the chat struct with the correct chat_id type
     let mut chat = Chat {
         id: chat_id.to_string(),
@@ -872,7 +869,10 @@ pub async fn assistant_chat_handler_form(
         id: String::new(),
         status: String::new(),
     };
-    run.create(&chat.id, &assistant_id).await?;
+    let assistant_id_guard = assistant_id.lock().await;
+    let assistant_id_string = assistant_id_guard.clone();
+
+    run.create(&chat.id, &assistant_id_string).await?;
     // Check the status of the run until it's completed or a timeout occurs
     let start_time = std::time::Instant::now();
     while start_time.elapsed().as_secs() < TIMEOUT_DURATION {
@@ -889,13 +889,19 @@ pub async fn assistant_chat_handler_form(
     // If run is not finished save and return a sorry message with the role "error"
     if run.status != "completed" {
         // Save the error message to the database
-        db.save_message_to_db(&chat_id, "error", "Sorry I am currently facing some technical issues, please try again.").await?;
+        db.save_message_to_db(
+            &chat_id,
+            "error",
+            "Sorry I am currently facing some technical issues, please try again.",
+        )
+        .await?;
         // Return the error message as part of the response, wrapped in a vector
         return Ok(Json(AssistantChatResponse {
             messages: vec![SimplifiedMessage {
                 created_at: Utc::now().timestamp(),
                 role: "error".to_string(),
-                text: "Sorry I am currently facing some technical issues, please try again.".to_string(),
+                text: "Sorry I am currently facing some technical issues, please try again."
+                    .to_string(),
             }],
         }));
     }
@@ -903,7 +909,8 @@ pub async fn assistant_chat_handler_form(
     chat.get_messages(true).await?;
     if let Some(last_message) = chat.messages.last() {
         // Save the assistant message to the database
-        db.save_message_to_db(&chat_id, "assistant", &last_message.text).await?;
+        db.save_message_to_db(&chat_id, "assistant", &last_message.text)
+            .await?;
     }
     // Return the updated conversation history including the assistant's response
     Ok(Json(AssistantChatResponse {

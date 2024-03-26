@@ -1,5 +1,5 @@
 mod assistant;
-use assistant::{Assistant, Ressources, assistant_chat_handler_form, create_assistant, create_ressources, DB};
+use assistant::{assistant_chat_handler_form, create_assistant, create_ressources, DB};
 use axum::{
     extract::Extension,
     routing::{get_service, post},
@@ -9,8 +9,8 @@ use dotenv::dotenv;
 use sqlx::MySqlPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tower_http::services::ServeDir;
 use tokio::time::{sleep, Duration};
+use tower_http::services::ServeDir;
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: MySqlPool, assistant_id: Arc<Mutex<String>>) -> Router {
     Router::new()
@@ -27,21 +27,23 @@ async fn main() {
     env_logger::init();
     dotenv().ok();
     // Create the files for the assistant.
-    let mut ressources = match create_ressources("context", Vec::new(), "instruction/instruction.txt").await {
-        Ok(ressources) => ressources,
-        Err(e) => {
-            log::error!("Failed to create ressources: {:?}", e);
-            std::process::exit(1);
-        }
-    };
+    let mut ressources =
+        match create_ressources("context", Vec::new(), "instruction/instruction.txt").await {
+            Ok(ressources) => ressources,
+            Err(e) => {
+                log::error!("Failed to create ressources: {:?}", e);
+                std::process::exit(1);
+            }
+        };
     // Create an assistant outside of the main function.
-    let mut assistant = match create_assistant("My Assistant", "gpt-4-1106-preview", ressources.clone()).await {
-        Ok(assistant) => assistant,
-        Err(e) => {
-            log::error!("Failed to create assistant: {:?}", e);
-            std::process::exit(1);
-        }
-    };
+    let mut assistant =
+        match create_assistant("My Assistant", "gpt-4-1106-preview", ressources.clone()).await {
+            Ok(assistant) => assistant,
+            Err(e) => {
+                log::error!("Failed to create assistant: {:?}", e);
+                std::process::exit(1);
+            }
+        };
     // Create a connection pool for MySQL to the chatbot database where the messages and chat are saved
     let db = match DB::create_db_pool().await {
         Ok(db) => db,
@@ -71,15 +73,23 @@ async fn main() {
         // Attempt to create new resources and assistant
         match create_ressources("context", Vec::new(), "instruction/instruction.txt").await {
             Ok(new_ressources) => {
-                match create_assistant("My Assistant", "gpt-4-1106-preview", new_ressources.clone()).await {
+                match create_assistant("My Assistant", "gpt-4-1106-preview", new_ressources.clone())
+                    .await
+                {
                     Ok(new_assistant) => {
                         // Update the assistant ID in the shared state
-                        let mut old_assistant_id = assistant_id.lock().await;
-                        let old_id = std::mem::replace(&mut *old_assistant_id, new_assistant.id.clone());
+                        let mut assistant_id_guard = assistant_id.lock().await;
+                        *assistant_id_guard = new_assistant.id.clone();
                         // Delete the old assistant and resources after the last request with the old assistant_id is finished
                         tokio::spawn(async move {
-                            assistant.delete().await.expect("Failed to delete old assistant");
-                            ressources.delete().await.expect("Failed to delete old resources");
+                            assistant
+                                .delete()
+                                .await
+                                .expect("Failed to delete old assistant");
+                            ressources
+                                .delete()
+                                .await
+                                .expect("Failed to delete old resources");
                         });
                         // Update the local variables to the new ones
                         assistant = new_assistant;
