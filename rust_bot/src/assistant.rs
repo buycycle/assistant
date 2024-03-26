@@ -535,13 +535,6 @@ pub async fn create_assistant(
     Ok(assistant)
 }
 
-pub async fn teardown(assistant: Assistant, mut files: Ressources) -> Result<(), AssistantError> {
-    // Delete the assistant on the OpenAI platform
-    assistant.delete().await?;
-    files.delete().await?;
-    info!("Assistant with ID: {} has been deleted", assistant.id);
-    Ok(())
-}
 
 struct Chat {
     id: String,
