@@ -1,4 +1,4 @@
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use std::sync::Arc;
 use axum::{
     extract::Form as AxumForm,
@@ -832,7 +832,7 @@ pub struct AssistantChatForm {
 // Handles chat interactions with an OpenAI assistant using form data.
 pub async fn assistant_chat_handler_form(
     Extension(db_pool): Extension<MySqlPool>,
-    Extension(assistant_id): Extension<Arc<Mutex<String>>>, // Change this line
+    Extension(assistant_id): Extension<Arc<RwLock<String>>>, // Change this line
     AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>, // Use Form extractor here
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
     let db = DB { pool: db_pool };
@@ -869,8 +869,9 @@ pub async fn assistant_chat_handler_form(
         id: String::new(),
         status: String::new(),
     };
-    let assistant_id_guard = assistant_id.lock().await;
-    let assistant_id_string = assistant_id_guard.clone();
+    // Acquire a read lock when you only need to read the value
+    let assistant_id_read_guard = assistant_id.read().await;
+    let assistant_id_string = assistant_id_read_guard.clone();
 
     run.create(&chat.id, &assistant_id_string).await?;
     // Check the status of the run until it's completed or a timeout occurs

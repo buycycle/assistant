@@ -8,11 +8,12 @@ use axum::{
 use dotenv::dotenv;
 use sqlx::MySqlPool;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tower_http::services::ServeDir;
+use chrono::prelude::*;
 // Define a function to create the Axum app with the database pool and assistant.
-async fn app(db_pool: MySqlPool, assistant_id: Arc<Mutex<String>>) -> Router {
+async fn app(db_pool: MySqlPool, assistant_id: Arc<RwLock<String>>) -> Router {
     Router::new()
         .route("/assistant", post(assistant_chat_handler_form)) // Updated route
         .nest_service(
@@ -35,9 +36,10 @@ async fn main() {
                 std::process::exit(1);
             }
         };
-    // Create an assistant outside of the main function.
-    let mut assistant =
-        match create_assistant("My Assistant", "gpt-4-1106-preview", ressources.clone()).await {
+    let now = Utc::now();
+    let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
+    let assistant_name = format!("Assistant_{}", timestamp);
+    let mut assistant = match create_assistant(&assistant_name, "gpt-4-1106-preview", ressources.clone()).await {
             Ok(assistant) => assistant,
             Err(e) => {
                 log::error!("Failed to create assistant: {:?}", e);
@@ -52,8 +54,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    // Wrap the assistant ID in an Arc<Mutex<>> for shared state
-    let assistant_id = Arc::new(Mutex::new(assistant.id.clone()));
+    let assistant_id = Arc::new(RwLock::new(assistant.id.clone()));
     // Start the server in a separate async task
     let server_assistant_id = assistant_id.clone();
     let server_db_pool = db.pool.clone();
@@ -71,14 +72,17 @@ async fn main() {
         // Wait for 24 hours
         sleep(Duration::from_secs(24 * 3600)).await;
         // Attempt to create new resources and assistant
+        let now = Utc::now();
+        let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
+        let assistant_name = format!("Assistant_{}", timestamp);
         match create_ressources("context", Vec::new(), "instruction/instruction.txt").await {
             Ok(new_ressources) => {
-                match create_assistant("My Assistant", "gpt-4-1106-preview", new_ressources.clone())
+                match create_assistant(&assistant_name, "gpt-4-1106-preview", new_ressources.clone())
                     .await
                 {
                     Ok(new_assistant) => {
                         // Update the assistant ID in the shared state
-                        let mut assistant_id_guard = assistant_id.lock().await;
+                        let mut assistant_id_guard = assistant_id.write().await;
                         *assistant_id_guard = new_assistant.id.clone();
                         // Delete the old assistant and resources after the last request with the old assistant_id is finished
                         tokio::spawn(async move {
