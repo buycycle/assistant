@@ -125,11 +125,13 @@ struct FileUploadResponse {
     filename: String,
 }
 
+#[derive(Clone)]
 pub struct FileInfo {
     pub file_id: String,
     pub file_name: String,
 }
 
+#[derive(Clone)]
 pub struct Ressources {
     pub files_info: Vec<FileInfo>,
     folder_path: String,
@@ -827,6 +829,10 @@ pub struct AssistantChatForm {
     pub user_id: String,
     pub message: String,
 }
+
+
+
+
 // Handles chat interactions with an OpenAI assistant using form data.
 pub async fn assistant_chat_handler_form(
     Extension(db_pool): Extension<MySqlPool>,
