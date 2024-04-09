@@ -1,10 +1,6 @@
 stages:
   - build
-  - trigger
-  - deploy-test
-  - test
-  - deploy-dev
-  - deploy-prod
+  - deploy
 
 variables:
   AWS_REGION: eu-central-1

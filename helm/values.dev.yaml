@@ -1,0 +1,19 @@
+env: dev
+product: bot
+
+
+ingress:
+  enabled: true
+  class: alb
+  annotations:
+    alb.ingress.kubernetes.io/group.name: buycycle-dev
+    alb.ingress.kubernetes.io/certificate-arn: arnˆ&&&&
+  hosts:
+    - host: buycycle.com
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: site-dev
+            port: 80
