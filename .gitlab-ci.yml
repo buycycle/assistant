@@ -31,7 +31,7 @@ variables:
     - env | grep DATABASE_URL >> rust_bot/.env
     - env | grep DATABASE_URL_PROD >> rust_bot/.env
     - echo "Build Docker image"
-    - docker build -f docker/${DockerFile} -t $AWS_ECR_REGISTRY:$IMAGE_TAG  .
+    - docker build -f docker/${DOCKERFILE} -t $AWS_ECR_REGISTRY:$IMAGE_TAG  .
     - echo "Pushing Docker image to ECR"
     - docker push $AWS_ECR_REGISTRY:$IMAGE_TAG
 
@@ -57,10 +57,12 @@ build:
     - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
     - if: $CI_COMMIT_BRANCH == "main" 
       variables:
-        DockerFile: main.dockerfile
+        ENVIRONMENT: prod
+        DOCKERFILE: main.dockerfile
     - if: $CI_COMMIT_BRANCH == "dev" 
       variables:
-        DockerFile: dev.dockerfile
+        ENVIRONMENT: dev
+        DOCKERFILE: dev.dockerfile
   
 deploy:
   extends: .deploy
