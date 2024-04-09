@@ -1,0 +1,67 @@
+image:
+  repository: 930985312118.dkr.ecr.eu-central-1.amazonaws.com/chat-bot
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: dev-86
+
+env: dev
+product: bot
+
+podAnnotations:
+  linkerd.io/inject: enabled
+
+
+storage:
+  persistentVolumeClaimName: bot-efs-pvc
+  requestedSize: 1G
+  className: gp2
+  enableDataSource: false
+  accessModes:
+    - ReadWriteOnce
+
+deployment:
+  volumes:
+    - name: share
+      mountPath: /share
+      persistentVolumeClaim:
+        claimName: bot-efs-pvc
+
+resources:
+  limits:
+    memory: "4Gi"
+  requests:
+    memory: "1Gi"
+
+containerPort: 80
+service:
+  enabled: true
+  name: http
+  type: NodePort
+  port: 80
+  protocol: TCP
+  annotations:
+    linkerd.io/inject: enabled
+
+replicaCount: 2
+labels:
+  label1:
+    name: "app-version"
+    value: "v0.0.1"
+
+
+# ingress:
+#   enabled: true
+#   class: alb
+#   annotations:
+#     alb.ingress.kubernetes.io/group.name: buycycle-dev
+#     alb.ingress.kubernetes.io/certificate-arn: arnˆ&&&&
+#   hosts:
+#     - host: buycycle.com
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: site-dev
+#             port: 80
+
