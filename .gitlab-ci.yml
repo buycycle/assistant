@@ -29,15 +29,8 @@ variables:
   script:
     - echo "Logging in to AWS ECR"
     - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ECR_REGISTRY
-    - |
-      if [ -n "$CI_COMMIT_TAG" ]; then
-        IMAGE_TAG=$CI_COMMIT_TAG
-        echo "Building image for tag: $IMAGE_TAG"
-      else
-        IMAGE_TAG=$CI_COMMIT_SHA
-        echo "Building image for commit: $IMAGE_TAG"
-      fi
-    # - aws s3 cp ${S3_ENV_PATH} rust_bot/.env
+    - export TAG=$(echo $CI_COMMIT_SHA | cut -c 1-5)
+    - export IMAGE_TAG="${ENVIRONMENT}-${TAG}"
     - env | grep OPENAI_API_KEY >> rust_bot/.env
     - env | grep DATABASE_URL >> rust_bot/.env
     - env | grep DATABASE_URL_PROD >> rust_bot/.env
@@ -46,47 +39,49 @@ variables:
     - echo "Pushing Docker image to ECR"
     - docker push $AWS_ECR_REGISTRY:$IMAGE_TAG
 
+.deploy:
+  image:
+    name: alpine/k8s:1.20.15
+    entrypoint: ["/bin/sh", "-c"]
+  before_script:
+    - export TAG=$(echo $CI_COMMIT_SHA | cut -c 1-5)
+    - export IMAGE_TAG="${ENVIRONMENT}-${TAG}"
+    - aws --region $AWS_REGION eks update-kubeconfig --name ${CLUSTER_NAME}
+    - kubectl version --short
+  script:
+    - cd helm/
+    - echo "Deploy Bot-${ENVIRONMENT}"
+    - helm repo add dasmeta https://dasmeta.github.io/helm
+    - helm upgrade --install chat-bot-${ENVIRONMENT} -n ${NAMESPACE} dasmeta/base --version 0.1.62 -f values.yaml -f server/values.${ENVIRONMENT}.yaml --set image.tag=$IMAGE_TAG --set labels.label1.value=$IMAGE_TAG 
 
-# .deploy:
-#   image:
-#     name: alpine/k8s:1.20.15
-#     entrypoint: ["/bin/sh", "-c"]
-#   before_script:
-#     - "export IMAGE_TAG=$(cat image_tag.txt)"
-#     - |
-#       if [ "${ENVIRONMENT}" = "dev" ] || [ "${ENVIRONMENT}" = "test" ]; then
-#         export AWS_ACCESS_KEY_ID=${AWS_DEV_ACCESS_KEY_ID}
-#         export AWS_SECRET_ACCESS_KEY=${AWS_DEV_SECRET_ACCESS_KEY}
-#       else
-#         export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-#         export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-#       fi
-#     - aws --region $AWS_REGION eks update-kubeconfig --name ${CLUSTER_NAME}
-#     - kubectl version --short
-#   script:
-#     - cd helm/${VARIANT}
-#     - helm dependency update
-#     - |
-#       helm upgrade --install buycycl-${VARIANT} -n ${NAMESPACE} . \
-#       -f ../values.yaml -f values.yaml \
-#       -f ../values.${ENVIRONMENT}.yaml -f values.${ENVIRONMENT}.yaml \
-#       --set buycycl-tenant.image.tag=$IMAGE_TAG
 
 build:
   extends: .build
-  variables:
-    DockerFile: main.dockerfile
-
-# deploy_dev_server:
-#   extends: .deploy
-#   stage: deploy-dev
-#   # needs:
-#   #   - acceptance_test
-#   variables:
-#     ENVIRONMENT: dev
-#     VARIANT: server
-#     CLUSTER_NAME: eks-dev
-#     NAMESPACE: default
-#   except:
-#     - tags
-#   when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
+    - if: $CI_COMMIT_BRANCH == "main" 
+      variables:
+        DockerFile: main.dockerfile
+    - if: $CI_COMMIT_BRANCH == "dev" 
+      variables:
+        DockerFile: dev.dockerfile
+  
+deploy:
+  extends: .deploy
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
+      variables:
+        ENVIRONMENT: prod
+        CLUSTER_NAME: buycycle-cluster
+        NAMESPACE: live
+    - if: $CI_COMMIT_BRANCH == "main" 
+      variables:
+        ENVIRONMENT: prod
+        CLUSTER_NAME: buycycle-cluster
+        NAMESPACE: live
+    - if: $CI_COMMIT_BRANCH == "dev" 
+      variables:
+        ENVIRONMENT: dev
+        CLUSTER_NAME: buycycle-cluster
+        NAMESPACE: dev
