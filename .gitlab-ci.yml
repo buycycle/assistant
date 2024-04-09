@@ -48,7 +48,7 @@ variables:
     - cd helm/
     - echo "Deploy Bot-${ENVIRONMENT}"
     - helm repo add dasmeta https://dasmeta.github.io/helm
-    - helm upgrade --install chat-bot-${ENVIRONMENT} -n ${NAMESPACE} dasmeta/base --version 0.1.62 -f values.yaml -f server/values.${ENVIRONMENT}.yaml --set image.tag=$IMAGE_TAG --set labels.label1.value=$IMAGE_TAG 
+    - helm upgrade --install chat-bot-${ENVIRONMENT} -n ${NAMESPACE} dasmeta/base --version 0.1.62 -f values.yaml -f values.${ENVIRONMENT}.yaml --set image.tag=$IMAGE_TAG --set labels.label1.value=$IMAGE_TAG 
 
 
 build:
