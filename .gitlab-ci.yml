@@ -38,8 +38,10 @@ variables:
         echo "Building image for commit: $IMAGE_TAG"
       fi
     # - aws s3 cp ${S3_ENV_PATH} rust_bot/.env
-    - env > rust_bot/.env
-    - cat rust_bot/.env | grep DATABASE_URL
+    - env | grep OPENAI_API_KEY >> rust_bot/.env
+    - env | grep DATABASE_URL >> rust_bot/.env
+    - env | grep DATABASE_URL_PROD >> rust_bot/.env
+    - cat rust_bot/.env
     - echo "Build Docker image"
     - docker build -f docker/${DockerFile} -t $AWS_ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG  .
 
