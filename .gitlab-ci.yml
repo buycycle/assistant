@@ -55,6 +55,9 @@ build:
   extends: .build
   rules:
     - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
+      variables:
+        ENVIRONMENT: prod
+        DOCKERFILE: main.dockerfile
     - if: $CI_COMMIT_BRANCH == "main" 
       variables:
         ENVIRONMENT: prod
