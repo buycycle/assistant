@@ -13,6 +13,33 @@ resources:
   requests:
     memory: "1Gi"
 
+readinessProbe:
+  exec:
+    command:
+      - sh
+      - -c
+      - >
+        curl -o /dev/null -s -w "%{http_code}" -X POST https://assistant.buycycle.com/assistant -H "Content-Type: application/x-www-form-urlencoded" -d 'user_id=test_user&message=test.' | grep 200
+
+  initialDelaySeconds: 10
+  periodSeconds: 60
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+livenessProbe:
+  exec:
+    command:
+      - sh
+      - -c
+      - >
+        curl -o /dev/null -s -w "%{http_code}" -X POST https://assistant.buycycle.com/assistant -H "Content-Type: application/x-www-form-urlencoded" -d 'user_id=test_user&message=test.' | grep 200
+
+  initialDelaySeconds: 30
+  periodSeconds: 120
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
 containerPort: 3000
 service:
   enabled: true
