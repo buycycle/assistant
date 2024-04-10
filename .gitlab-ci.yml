@@ -1,0 +1,79 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  AWS_REGION: eu-central-1
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  IMAGE_NAME: $CI_PROJECT_NAME
+
+.build:
+  stage: build
+  image:
+    name: amazon/aws-cli
+    entrypoint: [""]
+  services:
+    - name: docker:dind
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  before_script:
+    - amazon-linux-extras install docker
+    - aws --version
+    - docker --version
+  script:
+    - echo "Logging in to AWS ECR"
+    - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ECR_REGISTRY
+    - export TAG=$(echo $CI_COMMIT_SHA | cut -c 1-5)
+    - export IMAGE_TAG="${ENVIRONMENT}-${TAG}"
+    - env | grep OPENAI_API_KEY >> rust_bot/.env
+    - env | grep DATABASE_URL >> rust_bot/.env
+    - env | grep DATABASE_URL_PROD >> rust_bot/.env
+    - echo "Build Docker image"
+    - docker build -f docker/${DOCKERFILE} -t $AWS_ECR_REGISTRY:$IMAGE_TAG  .
+    - echo "Pushing Docker image to ECR"
+    - docker push $AWS_ECR_REGISTRY:$IMAGE_TAG
+
+.deploy:
+  image:
+    name: alpine/k8s:1.20.15
+    entrypoint: ["/bin/sh", "-c"]
+  before_script:
+    - export TAG=$(echo $CI_COMMIT_SHA | cut -c 1-5)
+    - export IMAGE_TAG="${ENVIRONMENT}-${TAG}"
+    - aws --region $AWS_REGION eks update-kubeconfig --name ${CLUSTER_NAME}
+    - kubectl version --short
+  script:
+    - cd helm/
+    - echo "Deploy Bot-${ENVIRONMENT}"
+    - helm repo add dasmeta https://dasmeta.github.io/helm
+    - helm upgrade --install chat-bot-${ENVIRONMENT} -n ${NAMESPACE} dasmeta/base --version 0.1.62 -f values.yaml -f values.${ENVIRONMENT}.yaml --set image.tag=$IMAGE_TAG --set labels.label1.value=$IMAGE_TAG 
+
+
+build:
+  extends: .build
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" 
+      variables:
+        ENVIRONMENT: prod
+        DOCKERFILE: main.dockerfile
+    - if: $CI_COMMIT_BRANCH == "dev" 
+      variables:
+        ENVIRONMENT: dev
+        DOCKERFILE: dev.dockerfile
+  
+deploy:
+  extends: .deploy
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" 
+      variables:
+        ENVIRONMENT: prod
+        CLUSTER_NAME: buycycle-cluster
+        NAMESPACE: live
+    - if: $CI_COMMIT_BRANCH == "dev" 
+      variables:
+        ENVIRONMENT: dev
+        CLUSTER_NAME: buycycle-cluster
+        NAMESPACE: dev

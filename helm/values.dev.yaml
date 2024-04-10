@@ -1,0 +1,18 @@
+env: dev
+product: bot
+
+ingress:
+  enabled: true
+  class: alb
+  annotations:
+    alb.ingress.kubernetes.io/group.name: chat-bot
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-central-1:930985312118:certificate/91d0862b-63d7-44e5-b133-49780e5d55ee
+  hosts:
+    - host: dev.assistant.buycycle.com
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: chat-bot-dev
+            port: 80
