@@ -13,7 +13,7 @@ resources:
   requests:
     memory: "1Gi"
 
-containerPort: 80
+containerPort: 3000
 service:
   enabled: true
   name: http

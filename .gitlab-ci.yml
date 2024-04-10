@@ -54,15 +54,15 @@ variables:
 build:
   extends: .build
   rules:
-    - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
-      variables:
-        ENVIRONMENT: prod
-        DOCKERFILE: main.dockerfile
+    # - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
+    #   variables:
+    #     ENVIRONMENT: prod
+    #     DOCKERFILE: main.dockerfile
     - if: $CI_COMMIT_BRANCH == "main" 
       variables:
         ENVIRONMENT: prod
         DOCKERFILE: main.dockerfile
-    - if: $CI_COMMIT_BRANCH == "dev" 
+    - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
       variables:
         ENVIRONMENT: dev
         DOCKERFILE: dev.dockerfile
@@ -71,17 +71,17 @@ deploy:
   extends: .deploy
   stage: deploy
   rules:
-    - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
-      variables:
-        ENVIRONMENT: prod
-        CLUSTER_NAME: buycycle-cluster
-        NAMESPACE: live
+    # - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
+    #   variables:
+    #     ENVIRONMENT: prod
+    #     CLUSTER_NAME: buycycle-cluster
+    #     NAMESPACE: live
     - if: $CI_COMMIT_BRANCH == "main" 
       variables:
         ENVIRONMENT: prod
         CLUSTER_NAME: buycycle-cluster
         NAMESPACE: live
-    - if: $CI_COMMIT_BRANCH == "dev" 
+    - if: $CI_COMMIT_BRANCH == "deploy-bot-live" 
       variables:
         ENVIRONMENT: dev
         CLUSTER_NAME: buycycle-cluster
