@@ -2,7 +2,7 @@ mod assistant;
 use assistant::{assistant_chat_handler_form, create_assistant, create_ressources, DB};
 use axum::{
     extract::Extension,
-    routing::{get_service, post},
+    routing::{get, get_service, post},
     Router,
 };
 use dotenv::dotenv;
@@ -12,10 +12,16 @@ use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tower_http::services::ServeDir;
 use chrono::prelude::*;
+
+// Define the health check handler
+async fn health_check() -> &'static str {
+    "OK"
+}
 // Define a function to create the Axum app with the database pool and assistant.
 async fn app(db_pool: MySqlPool, assistant_id: Arc<RwLock<String>>) -> Router {
     Router::new()
-        .route("/assistant", post(assistant_chat_handler_form)) // Updated route
+        .route("/health", get(health_check)) // Health check route
+        .route("/assistant", post(assistant_chat_handler_form)) // Existing route
         .nest_service(
             "/", // Serve static files at the root of the domain
             get_service(ServeDir::new("static")),

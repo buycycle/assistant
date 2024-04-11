@@ -60,8 +60,40 @@ curl -X POST https://assistant.buycycle.com/assistant \
 -d 'user_id=user_123&message=Hello%2C%20I%20am%20looking%20for%20a%20used%20bike.'
 ```
 
+
+
 ## API Endpoints
-- `POST /chat`: Send a message to the assistant and receive a response.### Development Environment
+### `GET /health`
+Checks the application's health. Returns `200 OK` with the text "OK" if it's running properly.
+Expected return:
+```
+```
+HTTP/1.1 200 OK
+content-type: text/plain; charset=utf-8
+content-length: 2
+date: [Date when the request was processed]
+OK
+```
+### `POST /assistant`
+Sends a user message to the assistant. Returns `200 OK` with the assistant's response in JSON format.
+Expected return:
+```
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 416
+date: Thu, 11 Apr 2024 09:37:37 GMT
+{
+  "messages": [
+    {
+      "created_at": 1712828249,
+      "role": "assistant",
+      "text": "Hi! It's great to hear you're interested in finding a pre-owned bike. Can you tell me what type of riding you're planning to do? That will help me find the right kind of bike for you. We've got road, mountain, gravel, and triathlon bikes. Also, what's your budget? Once I have that info, I can help track down the perfect bike for you on buycycle."
+    }
+  ]
+}
+```
+
+### Development Environment
 To build and run the assistant application in a development environment with Docker, use the following commands:
 1. Build the Docker image for development:
    ```sh
