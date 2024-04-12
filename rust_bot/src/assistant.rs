@@ -153,8 +153,8 @@ struct Bike {
 }
 impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
-        let database_url = env::var("DATABASE_URL").map_err(|_| {
-            AssistantError::DatabaseError("DATABASE_URL environment variable not set".to_string())
+        let database_url = env::var("DATABASE_URL_PROD").map_err(|_| {
+            AssistantError::DatabaseError("DATABASE_URL_PROD environment variable not set".to_string())
         })?;
 
         // Create a connection pool for MySQL
@@ -685,7 +685,7 @@ pub struct DB {
 }
 
 impl DB {
-    /// Creates a new database connection pool.
+    /// Creates a new database connection pool use dev DB.
     pub async fn create_db_pool() -> Result<Self, AssistantError> {
         let database_url = env::var("DATABASE_URL").map_err(|_| {
             AssistantError::DatabaseError("DATABASE_URL environment variable not set".to_string())
