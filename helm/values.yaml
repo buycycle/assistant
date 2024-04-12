@@ -13,32 +13,38 @@ resources:
   requests:
     memory: "1Gi"
 
-readinessProbe:
-  exec:
-    command:
-      - sh
-      - -c
-      - >
-        curl -o /dev/null -s -w "%{http_code}" -X POST https://assistant.buycycle.com/assistant -H "Content-Type: application/x-www-form-urlencoded" -d 'user_id=test_user&message=test.' | grep 200
-
-  initialDelaySeconds: 10
-  periodSeconds: 60
-  timeoutSeconds: 5
-  successThreshold: 1
-  failureThreshold: 3
 livenessProbe:
-  exec:
-    command:
-      - sh
-      - -c
-      - >
-        curl -o /dev/null -s -w "%{http_code}" -X POST https://assistant.buycycle.com/assistant -H "Content-Type: application/x-www-form-urlencoded" -d 'user_id=test_user&message=test.' | grep 200
-
+  httpGet:
+    path: /health
+    port: 80
+    scheme: HTTP
   initialDelaySeconds: 30
-  periodSeconds: 120
+  failureThreshold: 8
+  periodSeconds: 1
+  successThreshold: 1
+  timeoutSeconds: 4
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 80
+    scheme: HTTP
+  initialDelaySeconds: 30
+  failureThreshold: 5
+  periodSeconds: 1
+  successThreshold: 1
+  timeoutSeconds: 4
+
+startupProbe:
+  httpGet:
+    path: /health
+    port: 80
+    scheme: HTTP
+  initialDelaySeconds: 30
+  periodSeconds: 40
   timeoutSeconds: 5
   successThreshold: 1
-  failureThreshold: 3
+  failureThreshold: 30
 
 containerPort: 3000
 service:
