@@ -13,6 +13,17 @@ resources:
   requests:
     memory: "1Gi"
 
+startupProbe:
+  httpGet:
+    path: /health
+    port: 80
+    scheme: HTTP
+  initialDelaySeconds: 30
+  periodSeconds: 40
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 30
+
 livenessProbe:
   httpGet:
     path: /health
@@ -34,17 +45,6 @@ readinessProbe:
   periodSeconds: 1
   successThreshold: 1
   timeoutSeconds: 4
-
-startupProbe:
-  httpGet:
-    path: /health
-    port: 80
-    scheme: HTTP
-  initialDelaySeconds: 30
-  periodSeconds: 40
-  timeoutSeconds: 5
-  successThreshold: 1
-  failureThreshold: 30
 
 containerPort: 3000
 service:
