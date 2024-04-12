@@ -165,16 +165,16 @@ impl Ressources {
 
         // Define the query
         let main_query = "
-            SELECT buycycle_2023_01_20.bikes.slug as slug,
-                   buycycle_2023_01_20.bike_categories.slug as category,
-                   buycycle_2023_01_20.bike_additional_infos.frame_size as frame_size,
-                   buycycle_2023_01_20.bike_additional_infos.rider_height_min as rider_height_min,
-                   buycycle_2023_01_20.bike_additional_infos.rider_height_max as rider_height_max,
+            SELECT buycycle.bikes.slug as slug,
+                   buycycle.bike_categories.slug as category,
+                   buycycle.bike_additional_infos.frame_size as frame_size,
+                   buycycle.bike_additional_infos.rider_height_min as rider_height_min,
+                   buycycle.bike_additional_infos.rider_height_max as rider_height_max,
                    bikes.price,
                    bikes.color
-            FROM buycycle_2023_01_20.bikes
-            JOIN buycycle_2023_01_20.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
-            JOIN buycycle_2023_01_20.bike_categories ON bikes.bike_category_id = bike_categories.id
+            FROM buycycle.bikes
+            JOIN buycycle.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
+            JOIN buycycle.bike_categories ON bikes.bike_category_id = bike_categories.id
             WHERE bikes.status = 'active'
         ";
 
