@@ -67,7 +67,6 @@ curl -X POST https://assistant.buycycle.com/assistant \
 Checks the application's health. Returns `200 OK` with the text "OK" if it's running properly.
 Expected return:
 ```
-```
 HTTP/1.1 200 OK
 content-type: text/plain; charset=utf-8
 content-length: 2
@@ -115,6 +114,21 @@ To build and run the assistant application in a production environment with Dock
    docker run -d --rm -p 3000:3000 buycycle-bot-main
    ```
 This will start the assistant application as a detached process on port 8000. The application will run with the optimizations and configurations suitable for a production environment.
+
+# CI/CD
+Pipeline with gitlab and helm.
+
+1. get eks-access credentials from aws add to ~/.aws/credentials
+2. aws eks update-kubeconfig --name buycycle-cluster --region eu-central-1 profile xx
+3. add namespace for convinience, kubectl config set-context --current --namespace=dev
+4. check pods on dev kubectl get pod -n dev | grep chat
+5. check real time logs pod/<pod> -n dev -f
+6. start terminal in pod,  kubectl exec -it -n dev pod/<pod> -- /bin/bash
+7. get service, kubectl get svc -n dev
+8. port forwarding on local, kubectl port-forward svc/<service> -n live <local_port>:80
+
+
+
 
 ## Contributing
 Contributions are welcome! Please feel free to submit a pull request.
