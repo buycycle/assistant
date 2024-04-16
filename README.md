@@ -121,8 +121,8 @@ Pipeline with gitlab and helm.
 1. get eks-access credentials from aws add to ~/.aws/credentials
 2. aws eks update-kubeconfig --name buycycle-cluster --region eu-central-1 profile xx
 3. add namespace for convinience, kubectl config set-context --current --namespace=dev
-4. check pods on dev kubectl get pod -n dev | grep chat
-5. check real time logs pod/<pod> -n dev -f
+4. check pods on dev, kubectl get pod -n dev | grep chat
+5. check real time, kubectl logs pod/<pod> -n dev -f
 6. start terminal in pod,  kubectl exec -it -n dev pod/<pod> -- /bin/bash
 7. get service, kubectl get svc -n dev
 8. port forwarding on local, kubectl port-forward svc/<service> -n live <local_port>:80

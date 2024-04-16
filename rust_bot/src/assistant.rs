@@ -838,8 +838,6 @@ pub async fn assistant_chat_handler_form(
     let db = DB { pool: db_pool };
     let user_id = &assistant_chat_form.user_id;
     let message = &assistant_chat_form.message;
-    // log user_id and message
-    info!("chat_id: {}, message: {}", user_id, message);
     // Initialize chat or get existing chat_id
     let chat_id = match db.get_chat_id(user_id).await? {
         Some(id) => id,
@@ -855,7 +853,7 @@ pub async fn assistant_chat_handler_form(
         }
     };
     // log user_id and message
-    info!("chat_id: {}", chat_id);
+    info!("chat_id: {}, message: {}", user_id, message);
     // Save the user's message to the database
     db.save_message_to_db(&chat_id.to_string(), "user", message)
         .await?;
