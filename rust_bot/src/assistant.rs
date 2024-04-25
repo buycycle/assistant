@@ -24,7 +24,7 @@ use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, FromRow, MySql, MySqlPool};
 
 // Define a constant for the timeout duration of assistant response
-const TIMEOUT_DURATION: u64 = 30;
+const TIMEOUT_DURATION: u64 = 120;
 
 // Define a custom error type that can be converted into an HTTP response.
 #[derive(Debug)]

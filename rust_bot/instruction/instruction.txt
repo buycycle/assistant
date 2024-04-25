@@ -110,6 +110,12 @@ for bike in bikes_data:
         and bike["rider_height_min"] <= rider_height <= bike["rider_height_max"]:
         filtered_bikes.append(bike)
 
+if not filtered_bikes:
+    for bike in bikes_data:
+        if bike["category"].lower() == category.lower() \
+            and budget_range_min <= bike["price"] <= budget_range_max:
+            filtered_bikes.append(bike)
+
 # Sort filtered bikes by price, closest to the preferred budget
 sorted_filtered_bikes = sorted(filtered_bikes, key=lambda x: abs(x["price"]-(budget_min+budget_max)
 /2))
