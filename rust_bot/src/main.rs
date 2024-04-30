@@ -1,5 +1,5 @@
 mod assistant;
-use assistant::{assistant_chat_handler_form, create_assistant, create_ressources, DB};
+use assistant::{assistant_chat_handler_form, assistant_chat_handler_streaming_form, create_assistant, create_ressources, DB};
 use axum::{
     extract::Extension,
     routing::{get, get_service, post},
@@ -22,6 +22,7 @@ async fn app(db_pool: MySqlPool, assistant_id: Arc<RwLock<String>>) -> Router {
     Router::new()
         .route("/health", get(health_check)) // Health check route
         .route("/assistant", post(assistant_chat_handler_form)) // Existing route
+        .route("/assistant", post(assistant_chat_handler_streaming_form)) // Existing route
         .nest_service(
             "/", // Serve static files at the root of the domain
             get_service(ServeDir::new("static")),

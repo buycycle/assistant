@@ -1,24 +1,33 @@
-use tokio::sync::RwLock;
-use std::sync::Arc;
 use axum::{
-    extract::Form as AxumForm,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Extension, Json,
+    Extension,
+    Json,
+    extract::Form,
 };
 use chrono::Utc;
+use futures::{stream, AsyncReadExt};
 use log::info;
+use sse_codec::decode_stream;
+use sse_codec::Event as SseEvent;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::{io::AsyncRead, sync::RwLock};
+use futures::Stream;
+use std::env;
+use tokio_stream::wrappers::ReceiverStream;
+use reqwest::Error as ReqwestError;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 
-use reqwest::{multipart::Form, multipart::Part, Client};
+use reqwest::{multipart::Part, Client};
 use serde::{Deserialize, Serialize};
 
-use serde_json::json;
-use std::env;
+use serde_json::{json, Value};
 
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, FromRow, MySql, MySqlPool};
@@ -103,6 +112,11 @@ struct RunResponse {
 }
 
 #[derive(Deserialize)]
+struct RunStreamResponse {
+    id: String,
+}
+
+#[derive(Deserialize)]
 pub struct AssistantChatRequest {
     pub user_id: String,
     pub message: String,
@@ -154,7 +168,9 @@ struct Bike {
 impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
         let database_url = env::var("DATABASE_URL_PROD").map_err(|_| {
-            AssistantError::DatabaseError("DATABASE_URL_PROD environment variable not set".to_string())
+            AssistantError::DatabaseError(
+                "DATABASE_URL_PROD environment variable not set".to_string(),
+            )
         })?;
 
         // Create a connection pool for MySQL
@@ -819,6 +835,66 @@ impl Run {
         }
     }
 }
+
+struct RunStream {
+    id: String,
+}
+
+impl RunStream {
+    pub async fn create(
+        &mut self,
+        chat_id: &str,
+        assistant_id: &str,
+    ) -> Result<(), AssistantError> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let payload = json!({
+            "assistant_id": assistant_id,
+            "stream": true,
+        });
+        let response = client
+            .post(&format!(
+                "https://api.openai.com/v1/threads/{}/runs",
+                chat_id
+            ))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v1")
+            .json(&payload)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => {
+                let run_response = res.json::<RunStreamResponse>().await.map_err(|_| {
+                    AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
+                })?;
+                // Assign the ID and status to the struct
+                self.id = run_response.id;
+                Ok(())
+            }
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(format!(
+                "Failed to send request to OpenAI: {}",
+                e
+            ))),
+        }
+    }
+    async fn stream(&self, response: reqwest::Response) -> Result<(), ReqwestError> {
+        let mut stream = response.bytes_stream();
+        while let Some(item) = stream.next().await {
+            let bytes = item?;
+            let event_data = String::from_utf8(bytes.to_vec()).unwrap();
+            println!("Event: {}", event_data);
+            // Handle the event_data as needed
+        }
+        Ok(())
+    }
+}
+
 // think about websockets here
 /// Handles chat interactions with an OpenAI assistant.
 
@@ -882,6 +958,10 @@ pub async fn assistant_chat_handler_form(
             info!("Run completed, status: {}", run.status);
             break;
         }
+        chat.get_messages(false).await?;
+        Ok(Json(AssistantChatResponse {
+            messages: chat.messages,
+        }));
         info!("Run not completed, current status: {}", run.status);
         // Sleep for a short duration before checking the status again
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
@@ -918,3 +998,51 @@ pub async fn assistant_chat_handler_form(
         messages: chat.messages,
     }))
 }
+
+// Handles chat interactions with an OpenAI assistant streaming using form data.
+pub async fn assistant_chat_handler_streaming_form(
+    Extension(db_pool): Extension<MySqlPool>,
+    Extension(assistant_id): Extension<Arc<RwLock<String>>>,
+    AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>, // Use Form extractor here
+) -> Result<(), AssistantError> {
+    let db = DB { pool: db_pool };
+    let user_id = &assistant_chat_form.user_id;
+    let message = &assistant_chat_form.message;
+    // Initialize chat or get existing chat_id
+    let chat_id = match db.get_chat_id(user_id).await? {
+        Some(id) => id,
+        None => {
+            let mut chat = Chat {
+                id: String::new(), // Temporarily set to String::new(), will be updated below
+                messages: Vec::new(),
+            };
+            chat.initialize().await?;
+            let new_chat_id = chat.id; // No need to parse as i64, it's already a String
+            db.save_chat_id(user_id, &new_chat_id).await?;
+            new_chat_id
+        }
+    };
+    // log user_id and message
+    info!("chat_id: {}, message: {}", user_id, message);
+    // Save the user's message to the database
+    db.save_message_to_db(&chat_id.to_string(), "user", message)
+        .await?;
+    // Initialize the chat struct with the correct chat_id type
+    let mut chat = Chat {
+        id: chat_id.to_string(),
+        messages: Vec::new(),
+    };
+    // Send the user's message to the chat
+    chat.add_message(message, "user").await?;
+    // Create a run for the assistant to process the message
+    let mut run = RunStream {
+        id: String::new(),
+    };
+    // Acquire a read lock when you only need to read the value
+    let assistant_id_read_guard = assistant_id.read().await;
+    let assistant_id_string = assistant_id_read_guard.clone();
+
+    run.create(&chat.id, &assistant_id_string).await?;
+    // Check the status of the run until it's completed or a timeout occurs
+}
+
