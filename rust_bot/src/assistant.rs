@@ -3,7 +3,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
     Json,
-    extract::Form,
+    extract::Form as AxumForm,
 };
 use chrono::Utc;
 use futures::{stream, AsyncReadExt};
@@ -24,7 +24,7 @@ use reqwest::Error as ReqwestError;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
-use reqwest::{multipart::Part, Client};
+use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
 
 use serde_json::{json, Value};
@@ -1044,5 +1044,6 @@ pub async fn assistant_chat_handler_streaming_form(
 
     run.create(&chat.id, &assistant_id_string).await?;
     // Check the status of the run until it's completed or a timeout occurs
+    Ok(())
 }
 
