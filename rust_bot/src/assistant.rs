@@ -105,16 +105,6 @@ struct RunResponse {
     status: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct RunStreamResponseData {
-    thread_id: String,
-    content: String,
-}
-#[derive(Debug, Deserialize)]
-struct RunStreamResponse {
-    event: String,
-    data: RunStreamResponseData,
-}
 
 #[derive(Deserialize)]
 pub struct AssistantChatRequest {
@@ -836,59 +826,37 @@ impl Run {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct DeltaTextContent {
+    value: String,
+}
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum DeltaContent {
+    text { text: DeltaTextContent },
+    // Add other content types here if needed
+}
+#[derive(Debug, Deserialize)]
+struct Delta {
+    content: Vec<DeltaContent>,
+}
+#[derive(Debug, Deserialize)]
+struct ThreadMessageDeltaData {
+    delta: Delta,
+}
+#[derive(Debug, Deserialize)]
+struct RunStreamResponse {
+    #[serde(rename = "event")]
+    event: String,
+    #[serde(rename = "data")]
+    data: ThreadMessageDeltaData,
+}
+#[derive(Debug)]
 struct RunStream {
     id: String,
 }
 
 impl RunStream {
-    pub async fn create(
-        &mut self,
-        chat_id: &str,
-        assistant_id: &str,
-    ) -> Result<(), AssistantError> {
-        let client = Client::new();
-        let api_key = env::var("OPENAI_API_KEY")
-            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
-        let payload = json!({
-            "assistant_id": assistant_id,
-            "stream": true,
-        });
-        let response = client
-            .post(&format!(
-                "https://api.openai.com/v1/threads/{}/runs",
-                chat_id
-            ))
-            .header("Content-Type", "application/json")
-            .bearer_auth(&api_key)
-            .header("OpenAI-Beta", "assistants=v1")
-            .json(&payload)
-            .send()
-            .await;
-        match response {
-            Ok(res) if res.status().is_success() => {
-                let response_text = res.text().await.unwrap();
-                println!("Raw response text: {}", response_text);
-/***
-                let run_response = res.json::<RunStreamResponse>().await.map_err(|_| {
-                    AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
-                })?;
-                // Assign the ID and status to the struct
-                self.id = run_response.data.thread_id;
-                info!("Run ID: {}", self.id);
-                info!("Event: {}", run_response.data.content);
-*/
-                Ok(())
-            }
-            Ok(res) => {
-                let error_message = res.text().await.unwrap_or_default();
-                Err(AssistantError::OpenAIError(error_message))
-            }
-            Err(e) => Err(AssistantError::OpenAIError(format!(
-                "Failed to send request to OpenAI: {}",
-                e
-            ))),
-        }
-    }
     pub async fn create_and_stream_events(
         &mut self,
         chat_id: &str,
@@ -914,16 +882,38 @@ impl RunStream {
             .await;
         match response {
             Ok(res) if res.status().is_success() => {
-                // Stream and process events as they come in
                 let mut stream = res.bytes_stream();
+                let mut event_type = String::new();
+                let mut data_buffer = String::new();
                 while let Some(chunk) = stream.next().await {
                     let bytes = chunk.map_err(|e| AssistantError::OpenAIError(format!("Stream error: {}", e)))?;
                     let chunk_text = String::from_utf8(bytes.to_vec()).map_err(|_| AssistantError::OpenAIError("Failed to parse bytes to string".to_string()))?;
-                    // Process each chunk of text as it arrives
-                    println!("Chunk: {}", chunk_text);
-                    // Here you would parse the chunk_text as JSON and handle each event
-                    // For example, you could deserialize it into a RunStreamResponse struct
-                    // and then process the event contained within it.
+                    for line in chunk_text.lines() {
+                        if line.starts_with("event:") {
+                            event_type = line["event:".len()..].trim().to_string();
+                        } else if line.starts_with("data:") {
+                            data_buffer = line["data:".len()..].trim().to_string();
+                        } else if line.is_empty() {
+                            // End of an event, process the buffered data
+                            if event_type == "thread.message.delta" {
+                                if let Ok(data) = serde_json::from_str::<ThreadMessageDeltaData>(&data_buffer) {
+                                    for content_item in data.delta.content {
+                                        match content_item {
+                                            DeltaContent::text { text } => {
+                                                eprint!("{}", text.value);
+                                            }
+                                            // Handle other content types here if needed
+                                        }
+                                    }
+                                } else {
+                                    eprintln!("Failed to deserialize data: {}", data_buffer);
+                                }
+                            }
+                            // Clear the buffers for the next event
+                            event_type.clear();
+                            data_buffer.clear();
+                        }
+                    }
                 }
                 Ok(())
             }
