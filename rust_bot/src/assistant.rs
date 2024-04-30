@@ -1,33 +1,27 @@
 use axum::{
+    extract::Form as AxumForm,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Extension,
-    Json,
-    extract::Form as AxumForm,
+    Extension, Json,
 };
 use chrono::Utc;
-use futures::{stream, AsyncReadExt};
+use futures::stream;
 use log::info;
-use sse_codec::decode_stream;
-use sse_codec::Event as SseEvent;
+use reqwest::Error as ReqwestError;
+use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::{io::AsyncRead, sync::RwLock};
-use futures::Stream;
-use std::env;
-use tokio_stream::wrappers::ReceiverStream;
-use reqwest::Error as ReqwestError;
-use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 
 use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, FromRow, MySql, MySqlPool};
@@ -111,9 +105,15 @@ struct RunResponse {
     status: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
+struct RunStreamResponseData {
+    thread_id: String,
+    content: String,
+}
+#[derive(Debug, Deserialize)]
 struct RunStreamResponse {
-    id: String,
+    event: String,
+    data: RunStreamResponseData,
 }
 
 #[derive(Deserialize)]
@@ -866,11 +866,17 @@ impl RunStream {
             .await;
         match response {
             Ok(res) if res.status().is_success() => {
+                let response_text = res.text().await.unwrap();
+                println!("Raw response text: {}", response_text);
+/***
                 let run_response = res.json::<RunStreamResponse>().await.map_err(|_| {
                     AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
                 })?;
                 // Assign the ID and status to the struct
-                self.id = run_response.id;
+                self.id = run_response.data.thread_id;
+                info!("Run ID: {}", self.id);
+                info!("Event: {}", run_response.data.content);
+*/
                 Ok(())
             }
             Ok(res) => {
@@ -883,15 +889,53 @@ impl RunStream {
             ))),
         }
     }
-    async fn stream(&self, response: reqwest::Response) -> Result<(), ReqwestError> {
-        let mut stream = response.bytes_stream();
-        while let Some(item) = stream.next().await {
-            let bytes = item?;
-            let event_data = String::from_utf8(bytes.to_vec()).unwrap();
-            println!("Event: {}", event_data);
-            // Handle the event_data as needed
+    pub async fn create_and_stream_events(
+        &mut self,
+        chat_id: &str,
+        assistant_id: &str,
+    ) -> Result<(), AssistantError> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let payload = json!({
+            "assistant_id": assistant_id,
+            "stream": true,
+        });
+        let response = client
+            .post(&format!(
+                "https://api.openai.com/v1/threads/{}/runs",
+                chat_id
+            ))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v1")
+            .json(&payload)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => {
+                // Stream and process events as they come in
+                let mut stream = res.bytes_stream();
+                while let Some(chunk) = stream.next().await {
+                    let bytes = chunk.map_err(|e| AssistantError::OpenAIError(format!("Stream error: {}", e)))?;
+                    let chunk_text = String::from_utf8(bytes.to_vec()).map_err(|_| AssistantError::OpenAIError("Failed to parse bytes to string".to_string()))?;
+                    // Process each chunk of text as it arrives
+                    println!("Chunk: {}", chunk_text);
+                    // Here you would parse the chunk_text as JSON and handle each event
+                    // For example, you could deserialize it into a RunStreamResponse struct
+                    // and then process the event contained within it.
+                }
+                Ok(())
+            }
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(format!(
+                "Failed to send request to OpenAI: {}",
+                e
+            ))),
         }
-        Ok(())
     }
 }
 
@@ -958,10 +1002,6 @@ pub async fn assistant_chat_handler_form(
             info!("Run completed, status: {}", run.status);
             break;
         }
-        chat.get_messages(false).await?;
-        Ok(Json(AssistantChatResponse {
-            messages: chat.messages,
-        }));
         info!("Run not completed, current status: {}", run.status);
         // Sleep for a short duration before checking the status again
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
@@ -1035,15 +1075,11 @@ pub async fn assistant_chat_handler_streaming_form(
     // Send the user's message to the chat
     chat.add_message(message, "user").await?;
     // Create a run for the assistant to process the message
-    let mut run = RunStream {
-        id: String::new(),
-    };
+    let mut run = RunStream { id: String::new() };
     // Acquire a read lock when you only need to read the value
     let assistant_id_read_guard = assistant_id.read().await;
     let assistant_id_string = assistant_id_read_guard.clone();
 
-    run.create(&chat.id, &assistant_id_string).await?;
-    // Check the status of the run until it's completed or a timeout occurs
+    run.create_and_stream_events(&chat.id, &assistant_id_string).await?;
     Ok(())
 }
-

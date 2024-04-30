@@ -1,17 +1,20 @@
 mod assistant;
-use assistant::{assistant_chat_handler_form, assistant_chat_handler_streaming_form, create_assistant, create_ressources, DB};
+use assistant::{
+    assistant_chat_handler_form, assistant_chat_handler_streaming_form, create_assistant,
+    create_ressources, DB,
+};
 use axum::{
     extract::Extension,
     routing::{get, get_service, post},
     Router,
 };
+use chrono::prelude::*;
 use dotenv::dotenv;
 use sqlx::MySqlPool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tower_http::services::ServeDir;
-use chrono::prelude::*;
 
 // Define the health check handler
 async fn health_check() -> &'static str {
@@ -22,7 +25,7 @@ async fn app(db_pool: MySqlPool, assistant_id: Arc<RwLock<String>>) -> Router {
     Router::new()
         .route("/health", get(health_check)) // Health check route
         .route("/assistant", post(assistant_chat_handler_form)) // Existing route
-        .route("/assistant", post(assistant_chat_handler_streaming_form)) // Existing route
+        .route("/assistant_stream", post(assistant_chat_handler_streaming_form)) // Existing route
         .nest_service(
             "/", // Serve static files at the root of the domain
             get_service(ServeDir::new("static")),
@@ -46,7 +49,8 @@ async fn main() {
     let now = Utc::now();
     let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
     let assistant_name = format!("Assistant_{}", timestamp);
-    let mut assistant = match create_assistant(&assistant_name, "gpt-4-1106-preview", ressources.clone()).await {
+    let mut assistant =
+        match create_assistant(&assistant_name, "gpt-4-1106-preview", ressources.clone()).await {
             Ok(assistant) => assistant,
             Err(e) => {
                 log::error!("Failed to create assistant: {:?}", e);
@@ -84,8 +88,12 @@ async fn main() {
         let assistant_name = format!("Assistant_{}", timestamp);
         match create_ressources("context", Vec::new(), "instruction/instruction.txt").await {
             Ok(new_ressources) => {
-                match create_assistant(&assistant_name, "gpt-4-1106-preview", new_ressources.clone())
-                    .await
+                match create_assistant(
+                    &assistant_name,
+                    "gpt-4-1106-preview",
+                    new_ressources.clone(),
+                )
+                .await
                 {
                     Ok(new_assistant) => {
                         // Update the assistant ID in the shared state
