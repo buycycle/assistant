@@ -856,6 +856,62 @@ struct RunStream {
     id: String,
 }
 
+#[derive(Debug)]
+struct RunStreamStream {
+    id: String,
+}
+
+use serde_json::Value; // Make sure to import Value from serde_json
+impl RunStreamStream {
+    pub async fn create_and_stream_events(
+        &mut self,
+        chat_id: &str,
+        assistant_id: &str,
+    ) -> Result<Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>> + Send>, AssistantError> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let payload = json!({
+            "assistant_id": assistant_id,
+            "stream": true,
+        });
+        let response = client
+            .post(&format!(
+                "https://api.openai.com/v1/threads/{}/runs",
+                chat_id
+            ))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v1")
+            .json(&payload)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => {
+                let stream = res.bytes_stream().map(|result| {
+                    match result {
+                        Ok(bytes) => {
+                            let text = String::from_utf8(bytes.to_vec()).unwrap(); // Directly unwrap here
+                            let value: Value = serde_json::from_str(&text).unwrap(); // Directly unwrap here
+                            let event_data = value["data"]["text"].as_str().unwrap_or_default();
+                            Ok(Event::default().data(event_data))
+                        },
+                        Err(_) => Ok(Event::default().data("Error processing event")), // Handle error case
+                    }
+                });
+                Ok(Sse::new(stream))
+            }
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(format!(
+                "Failed to send request to OpenAI: {}",
+                e
+            ))),
+        }
+    }
+}
 impl RunStream {
     pub async fn create_and_stream_events(
         &mut self,
@@ -1029,7 +1085,6 @@ pub async fn assistant_chat_handler_form(
     }))
 }
 
-// Handles chat interactions with an OpenAI assistant streaming using form data.
 pub async fn assistant_chat_handler_streaming_form(
     Extension(db_pool): Extension<MySqlPool>,
     Extension(assistant_id): Extension<Arc<RwLock<String>>>,
@@ -1072,4 +1127,60 @@ pub async fn assistant_chat_handler_streaming_form(
 
     run.create_and_stream_events(&chat.id, &assistant_id_string).await?;
     Ok(())
+}
+use axum::{
+    // ... other imports ...
+    response::sse::{Event, Sse},
+};
+use std::convert::Infallible;
+
+// Handles chat interactions with an OpenAI assistant streaming using form data.
+pub async fn assistant_chat_handler_streaming_stream_form(
+    Extension(db_pool): Extension<MySqlPool>,
+    Extension(assistant_id): Extension<Arc<RwLock<String>>>,
+    AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>, // Use Form extractor here
+) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>> + Send>, AssistantError> {
+    let db = DB { pool: db_pool };
+    let user_id = &assistant_chat_form.user_id;
+    let message = &assistant_chat_form.message;
+    // Initialize chat or get existing chat_id
+    let chat_id = match db.get_chat_id(user_id).await? {
+        Some(id) => id,
+        None => {
+            let mut chat = Chat {
+                id: String::new(), // Temporarily set to String::new(), will be updated below
+                messages: Vec::new(),
+            };
+            chat.initialize().await?;
+            let new_chat_id = chat.id; // No need to parse as i64, it's already a String
+            db.save_chat_id(user_id, &new_chat_id).await?;
+            new_chat_id
+        }
+    };
+    // log user_id and message
+    info!("chat_id: {}, message: {}", user_id, message);
+    // Save the user's message to the database
+    db.save_message_to_db(&chat_id.to_string(), "user", message)
+        .await?;
+    // Initialize the chat struct with the correct chat_id type
+    let mut chat = Chat {
+        id: chat_id.to_string(),
+        messages: Vec::new(),
+    };
+    // Send the user's message to the chat
+    chat.add_message(message, "user").await?;
+    // Create a run for the assistant to process the message
+    let mut run = RunStreamStream { id: String::new() };
+    // Acquire a read lock when you only need to read the value
+    let assistant_id_read_guard = assistant_id.read().await;
+    let assistant_id_string = assistant_id_read_guard.clone();
+
+    run.create_and_stream_events(&chat.id, &assistant_id_string).await?;
+    let stream = stream::unfold(0, |state| async move {
+        // Replace this with your logic to fetch or generate events
+        let event = Event::default().data(format!("Message {}", state));
+        Some((Ok(event), state + 1))
+    });
+    // Return the stream wrapped in `Sse`
+    Ok(Sse::new(stream))
 }
