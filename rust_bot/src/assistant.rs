@@ -867,7 +867,7 @@ impl RunStreamStream {
         &mut self,
         chat_id: &str,
         assistant_id: &str,
-    ) -> Result<Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>> + Send>, AssistantError> {
+    ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>> + Send>, AssistantError> {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
@@ -891,20 +891,29 @@ impl RunStreamStream {
                 let stream = res.bytes_stream().map(|result| {
                     match result {
                         Ok(bytes) => {
-                            let text = String::from_utf8(bytes.to_vec()).unwrap(); // Directly unwrap here
-                            let value: Value = serde_json::from_str(&text).unwrap(); // Directly unwrap here
-                            let event_data = value["data"]["text"].as_str().unwrap_or_default();
-                            Ok(Event::default().data(event_data))
+                            let text = String::from_utf8(bytes.to_vec()).unwrap_or_default();
+                            // Parse the text into a JSON Value
+                            match serde_json::from_str::<Value>(&text) {
+                                Ok(value) => {
+                                    // Extract the event data from the JSON structure
+                                    if let Some(event_data) = value["data"]["text"].as_str() {
+                                        Ok(Event::default().data(event_data))
+                                    } else {
+                                        Ok(Event::default().data("Error processing event"))
+                                    }
+                                },
+                                Err(_) => Ok(Event::default().data("Error processing event")),
+                            }
                         },
-                        Err(_) => Ok(Event::default().data("Error processing event")), // Handle error case
+                        Err(_) => Ok(Event::default().data("Error processing event")),
                     }
                 });
                 Ok(Sse::new(stream))
-            }
+            },
             Ok(res) => {
                 let error_message = res.text().await.unwrap_or_default();
                 Err(AssistantError::OpenAIError(error_message))
-            }
+            },
             Err(e) => Err(AssistantError::OpenAIError(format!(
                 "Failed to send request to OpenAI: {}",
                 e
@@ -1139,7 +1148,7 @@ pub async fn assistant_chat_handler_streaming_stream_form(
     Extension(db_pool): Extension<MySqlPool>,
     Extension(assistant_id): Extension<Arc<RwLock<String>>>,
     AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>, // Use Form extractor here
-) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>> + Send>, AssistantError> {
+) -> Result<Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>> + Send>, AssistantError> {
     let db = DB { pool: db_pool };
     let user_id = &assistant_chat_form.user_id;
     let message = &assistant_chat_form.message;
@@ -1175,12 +1184,5 @@ pub async fn assistant_chat_handler_streaming_stream_form(
     let assistant_id_read_guard = assistant_id.read().await;
     let assistant_id_string = assistant_id_read_guard.clone();
 
-    run.create_and_stream_events(&chat.id, &assistant_id_string).await?;
-    let stream = stream::unfold(0, |state| async move {
-        // Replace this with your logic to fetch or generate events
-        let event = Event::default().data(format!("Message {}", state));
-        Some((Ok(event), state + 1))
-    });
-    // Return the stream wrapped in `Sse`
-    Ok(Sse::new(stream))
+    Ok(run.create_and_stream_events(&chat.id, &assistant_id_string).await?)
 }
