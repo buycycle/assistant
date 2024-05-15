@@ -45,7 +45,7 @@ async fn main() {
     let now = Utc::now();
     let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
     let assistant_name = format!("Assistant_{}", timestamp);
-    let mut assistant = match create_assistant(&assistant_name, "gpt-4-1106-preview", ressources.clone()).await {
+    let mut assistant = match create_assistant(&assistant_name, "gpt-4o", ressources.clone()).await {
             Ok(assistant) => assistant,
             Err(e) => {
                 log::error!("Failed to create assistant: {:?}", e);
@@ -83,7 +83,7 @@ async fn main() {
         let assistant_name = format!("Assistant_{}", timestamp);
         match create_ressources("context/file_search","context/code_interpreter", Vec::new(), "instruction/instruction.txt").await {
             Ok(new_ressources) => {
-                match create_assistant(&assistant_name, "gpt-4-1106-preview", new_ressources.clone())
+                match create_assistant(&assistant_name, "gpt-4o", new_ressources.clone())
                     .await
                 {
                     Ok(new_assistant) => {

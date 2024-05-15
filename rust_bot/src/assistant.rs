@@ -186,7 +186,11 @@ impl Ressources {
         let bikes_json_string = serde_json::to_string_pretty(&bikes)
             .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
         // Write the JSON data to a file in the specified folder_path
-        let file_path = PathBuf::from(&self.folder_path_file_search).join("bikes.json");
+        let folder_path = PathBuf::from(&self.folder_path_code_interpreter);
+        if !folder_path.exists() {
+            fs::create_dir_all(&folder_path).expect("Failed to create folder_path_code_interpreter");
+        };
+        let file_path = PathBuf::from(&self.folder_path_code_interpreter).join("bikes.json");
         let mut file =
             File::create(file_path).map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         file.write_all(bikes_json_string.as_bytes())
@@ -228,7 +232,7 @@ impl Ressources {
                 let form = Form::new().part("file", part).text("purpose", "assistants");
                 let response = client
                     .post("https://api.openai.com/v1/files")
-                    .header("OpenAI-Beta", "assistants=v1")
+                    .header("OpenAI-Beta", "assistants=v2")
                     .bearer_auth(&api_key)
                     .multipart(form)
                     .send()
@@ -297,7 +301,7 @@ impl Ressources {
                 let form = Form::new().part("file", part).text("purpose", "assistants");
                 let response = client
                     .post("https://api.openai.com/v1/files")
-                    .header("OpenAI-Beta", "assistants=v1")
+                    .header("OpenAI-Beta", "assistants=v2")
                     .bearer_auth(&api_key)
                     .multipart(form)
                     .send()
@@ -332,13 +336,17 @@ impl Ressources {
         Ok(())
     }
     pub async fn create_vector_store(&mut self) -> Result<(), AssistantError> {
-        // Ensure files are uploaded before creating the vector store
-        self.upload_files_search().await?;
         // Extract file_ids from files_info_file_search
         let file_ids: Vec<String> = self.files_info_file_search.iter().map(|info| info.file_id.clone()).collect();
         // Prepare the JSON payload with file_ids
         let payload = json!({
-            "file_ids": file_ids
+            "file_ids": file_ids,
+            "name": "assistant_vector_store",
+            "expires_after": {
+                "anchor": "last_active_at",
+                "days": 7
+            },
+
         });
         // Get the OpenAI API key from the environment
         let api_key = env::var("OPENAI_API_KEY")
@@ -446,19 +454,19 @@ impl Assistant {
                 {"type": "file_search"},
                 {"type": "code_interpreter"}
             ],
-            "tool_ressources": {
-                "file_search": {
+            "tool_resources": {
+                "code_interpreter": {
                     "file_ids": file_ids_code_interpreter
                 },
-                "code_interpreter": {
-                    "vector_store_id": vector_store_id
+                "file_search": {
+                    "vector_store_ids": [vector_store_id]
                 }
             },
             "model": self.model,
         });
         let response = client
             .post("https://api.openai.com/v1/assistants")
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .bearer_auth(&api_key)
             .json(&payload)
             .send()
@@ -498,7 +506,7 @@ impl Assistant {
         let client = Client::new();
         let response = client
             .delete(format!("https://api.openai.com/v1/assistants/{}", self.id))
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .bearer_auth(&api_key)
             .send()
             .await;
@@ -532,7 +540,7 @@ impl Assistant {
         let response = client
             .patch(&format!("https://api.openai.com/v1/assistants/{}", self.id))
             .header("Content-Type", "application/json")
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .bearer_auth(&api_key)
             .json(&payload)
             .send()
@@ -609,7 +617,7 @@ impl Chat {
             .post("https://api.openai.com/v1/threads")
             .header("Content-Type", "application/json")
             .bearer_auth(&api_key)
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .send()
             .await;
         match response {
@@ -649,7 +657,7 @@ impl Chat {
             ))
             .header("Content-Type", "application/json")
             .bearer_auth(&api_key)
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .send()
             .await;
         match response {
@@ -711,7 +719,7 @@ impl Chat {
             ))
             .header("Content-Type", "application/json")
             .bearer_auth(&api_key)
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .json(&payload)
             .send()
             .await;
@@ -816,7 +824,7 @@ impl Run {
             ))
             .header("Content-Type", "application/json")
             .bearer_auth(&api_key)
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .json(&payload)
             .send()
             .await;
@@ -851,7 +859,7 @@ impl Run {
                 chat_id, self.id
             ))
             .header("Authorization", format!("Bearer {}", api_key))
-            .header("OpenAI-Beta", "assistants=v1")
+            .header("OpenAI-Beta", "assistants=v2")
             .send()
             .await;
         match response {

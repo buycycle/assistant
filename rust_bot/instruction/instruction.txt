@@ -93,6 +93,7 @@ https://buycycle.com/de-de/bike/[slug]
 
 
 Use this python code to filter out recommended bikes:
+Do not use comments, when generating this code
 
 ```python
 import json
@@ -100,31 +101,13 @@ import json
 
 with open("/mnt/data/{bikes.json}", "r") as file:
     bikes_data = json.load(file)
-
-# Filter bikes based on category, budget, rider height, and color
-filtered_bikes = []
-for bike in bikes_data:
-    if bike["category"] == category \
-        and bike["color"].lower() == color_preference.lower() \
-        and budget_range_min <= bike["price"] <= budget_range_max \
-        and bike["rider_height_min"] <= rider_height <= bike["rider_height_max"]:
-        filtered_bikes.append(bike)
-
-if not filtered_bikes:
-    for bike in bikes_data:
-        if bike["category"].lower() == category.lower() \
-            and budget_range_min <= bike["price"] <= budget_range_max:
-            filtered_bikes.append(bike)
-
-# Sort filtered bikes by price, closest to the preferred budget
-sorted_filtered_bikes = sorted(filtered_bikes, key=lambda x: abs(x["price"]-(budget_min+budget_max)
-/2))
-
-# Select the top 5 bikes based on the sorting
-top_5_bikes = sorted_filtered_bikes[:5]
-
-# Generate URLs for the top 5 bikes
-bike_urls = [f"https://buycycle.com/de-de/bike/{bike['slug']}" for bike in top_5_bikes]
-
+filtered_bikes = [bike for bike in bikes_data if bike["category"] == category and
+                  bike["color"].lower() == color_preference.lower() and
+                  budget_range_min <= bike["price"] <= budget_range_max and
+                  bike["rider_height_min"] <= rider_height <= bike["rider_height_max"]] or \
+                 [bike for bike in bikes_data if bike["category"].lower() == category.lower() and
+                  budget_range_min <= bike["price"] <= budget_range_max]
+sorted_filtered_bikes = sorted(filtered_bikes, key=lambda x: abs(x["price"] - (budget_range_min + budget_range_max) / 2))[:5]
+bike_urls = [f"https://buycycle.com/de-de/bike/{bike['slug']}" for bike in sorted_filtered_bikes]
 ```
 
