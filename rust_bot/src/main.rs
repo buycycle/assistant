@@ -5,13 +5,13 @@ use axum::{
     routing::{get, get_service, post},
     Router,
 };
+use chrono::prelude::*;
 use dotenv::dotenv;
 use sqlx::MySqlPool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tower_http::services::ServeDir;
-use chrono::prelude::*;
 
 // Define the health check handler
 async fn health_check() -> &'static str {
@@ -34,24 +34,31 @@ async fn main() {
     env_logger::init();
     dotenv().ok();
     // Create the files for the assistant.
-    let mut ressources =
-        match create_ressources("context/file_search","context/code_interpreter", Vec::new(), "instruction/instruction.txt").await {
-            Ok(ressources) => ressources,
-            Err(e) => {
-                log::error!("Failed to create ressources: {:?}", e);
-                std::process::exit(1);
-            }
-        };
+    let mut ressources = match create_ressources(
+        "context/file_search",
+        "context/code_interpreter",
+        Vec::new(),
+        "instruction/instruction.txt",
+    )
+    .await
+    {
+        Ok(ressources) => ressources,
+        Err(e) => {
+            log::error!("Failed to create ressources: {:?}", e);
+            std::process::exit(1);
+        }
+    };
     let now = Utc::now();
     let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
     let assistant_name = format!("Assistant_{}", timestamp);
-    let mut assistant = match create_assistant(&assistant_name, "gpt-4o", ressources.clone()).await {
-            Ok(assistant) => assistant,
-            Err(e) => {
-                log::error!("Failed to create assistant: {:?}", e);
-                std::process::exit(1);
-            }
-        };
+    let mut assistant = match create_assistant(&assistant_name, "gpt-4o", ressources.clone()).await
+    {
+        Ok(assistant) => assistant,
+        Err(e) => {
+            log::error!("Failed to create assistant: {:?}", e);
+            std::process::exit(1);
+        }
+    };
     // Create a connection pool for MySQL to the chatbot database where the messages and chat are saved
     let db = match DB::create_db_pool().await {
         Ok(db) => db,
@@ -81,11 +88,16 @@ async fn main() {
         let now = Utc::now();
         let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
         let assistant_name = format!("Assistant_{}", timestamp);
-        match create_ressources("context/file_search","context/code_interpreter", Vec::new(), "instruction/instruction.txt").await {
+        match create_ressources(
+            "context/file_search",
+            "context/code_interpreter",
+            Vec::new(),
+            "instruction/instruction.txt",
+        )
+        .await
+        {
             Ok(new_ressources) => {
-                match create_assistant(&assistant_name, "gpt-4o", new_ressources.clone())
-                    .await
-                {
+                match create_assistant(&assistant_name, "gpt-4o", new_ressources.clone()).await {
                     Ok(new_assistant) => {
                         // Update the assistant ID in the shared state
                         let mut assistant_id_guard = assistant_id.write().await;

@@ -1,5 +1,3 @@
-use tokio::sync::RwLock;
-use std::sync::Arc;
 use axum::{
     extract::Form as AxumForm,
     http::StatusCode,
@@ -13,6 +11,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
@@ -128,7 +128,7 @@ struct FileUploadResponse {
 }
 
 #[derive(Clone)]
-pub struct FileInfo{
+pub struct FileInfo {
     pub file_id: String,
     pub file_name: String,
 }
@@ -156,7 +156,9 @@ struct Bike {
 impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
         let database_url = env::var("DATABASE_URL_PROD").map_err(|_| {
-            AssistantError::DatabaseError("DATABASE_URL_PROD environment variable not set".to_string())
+            AssistantError::DatabaseError(
+                "DATABASE_URL_PROD environment variable not set".to_string(),
+            )
         })?;
         // Create a connection pool for MySQL
         let pool: Pool<MySql> = MySqlPoolOptions::new()
@@ -188,7 +190,8 @@ impl Ressources {
         // Write the JSON data to a file in the specified folder_path
         let folder_path = PathBuf::from(&self.folder_path_code_interpreter);
         if !folder_path.exists() {
-            fs::create_dir_all(&folder_path).expect("Failed to create folder_path_code_interpreter");
+            fs::create_dir_all(&folder_path)
+                .expect("Failed to create folder_path_code_interpreter");
         };
         let file_path = PathBuf::from(&self.folder_path_code_interpreter).join("bikes.json");
         let mut file =
@@ -337,7 +340,11 @@ impl Ressources {
     }
     pub async fn create_vector_store(&mut self) -> Result<(), AssistantError> {
         // Extract file_ids from files_info_file_search
-        let file_ids: Vec<String> = self.files_info_file_search.iter().map(|info| info.file_id.clone()).collect();
+        let file_ids: Vec<String> = self
+            .files_info_file_search
+            .iter()
+            .map(|info| info.file_id.clone())
+            .collect();
         // Prepare the JSON payload with file_ids
         let payload = json!({
             "file_ids": file_ids,
@@ -365,13 +372,17 @@ impl Ressources {
             .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
         // Check the response status and handle accordingly
         if response.status().is_success() {
-            let response_body = response.json::<serde_json::Value>().await
+            let response_body = response
+                .json::<serde_json::Value>()
+                .await
                 .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
             // Extract the vector_store_id from the response
             if let Some(vector_store_id) = response_body.get("id").and_then(|id| id.as_str()) {
                 self.vector_store_id = vector_store_id.to_string();
             } else {
-                return Err(AssistantError::OpenAIError("Failed to get vector_store_id from response".to_string()));
+                return Err(AssistantError::OpenAIError(
+                    "Failed to get vector_store_id from response".to_string(),
+                ));
             }
         } else {
             // Handle non-successful response
@@ -385,7 +396,11 @@ impl Ressources {
         let mut instruction = fs::read_to_string(&self.instruction_file_path)
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         // Replace any placeholders in the instruction text that match the {file_name} with the file_id
-        for file_info in self.files_info_file_search.iter().chain(self.files_info_code_interpreter.iter()) {
+        for file_info in self
+            .files_info_file_search
+            .iter()
+            .chain(self.files_info_code_interpreter.iter())
+        {
             // Perform the replacement directly without checking for placeholder existence
             instruction =
                 instruction.replace(&format!("{{{}}}", file_info.file_name), &file_info.file_id);
@@ -399,7 +414,11 @@ impl Ressources {
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
         let client = Client::new();
-        for file_info in self.files_info_file_search.iter().chain(self.files_info_code_interpreter.iter()) {
+        for file_info in self
+            .files_info_file_search
+            .iter()
+            .chain(self.files_info_code_interpreter.iter())
+        {
             let response = client
                 .delete(format!(
                     "https://api.openai.com/v1/files/{}",
@@ -437,7 +456,11 @@ pub struct Assistant {
 }
 impl Assistant {
     /// create an OpenAI assistant and set the assistant's ID
-    pub async fn initialize(&mut self, files_info_code_interpreter: Vec<FileInfo>, vector_store_id: String) -> Result<(), AssistantError> {
+    pub async fn initialize(
+        &mut self,
+        files_info_code_interpreter: Vec<FileInfo>,
+        vector_store_id: String,
+    ) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
@@ -497,7 +520,6 @@ impl Assistant {
             ))),
         }
     }
-
 
     /// Delete the OpenAI assistant with the given ID
     pub async fn delete(&self) -> Result<(), AssistantError> {
@@ -596,7 +618,12 @@ pub async fn create_assistant(
         instruction: ressources.instruction.clone(),
     };
     // Initialize the assistant by creating it on the OpenAI platform
-    assistant.initialize(ressources.files_info_code_interpreter, ressources.vector_store_id).await?;
+    assistant
+        .initialize(
+            ressources.files_info_code_interpreter,
+            ressources.vector_store_id,
+        )
+        .await?;
     info!("Assistant created with ID: {}", assistant.id);
     Ok(assistant)
 }
