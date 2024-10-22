@@ -23,6 +23,8 @@ use std::env;
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, FromRow, MySql, MySqlPool};
 
+use crate::function::get_order_status_tool_definition;
+
 // Define a constant for the timeout duration of assistant response
 const TIMEOUT_DURATION: u64 = 100;
 
@@ -617,11 +619,14 @@ pub async fn create_assistant(
         model: model.to_string(),
         instruction: ressources.instruction.clone(),
     };
+    // Get the tools JSON
+    let tools = get_order_status_tool_definition();
     // Initialize the assistant by creating it on the OpenAI platform
     assistant
-        .initialize(
+        .initialize_with_tools(
             ressources.files_info_code_interpreter,
             ressources.vector_store_id,
+            tools,
         )
         .await?;
     info!("Assistant created with ID: {}", assistant.id);
@@ -907,6 +912,40 @@ impl Run {
             ))),
         }
     }
+    pub async fn submit_tool_outputs(
+        &self,
+        chat_id: &str,
+        tool_outputs: Vec<serde_json::Value>,
+    ) -> Result<(), AssistantError> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let payload = json!({
+            "tool_outputs": tool_outputs
+        });
+        let response = client
+            .post(&format!(
+                "https://api.openai.com/v1/threads/{}/runs/{}/tool_outputs",
+                chat_id, self.id
+            ))
+            .header("Content-Type", "application/json")
+            .bearer_auth(&api_key)
+            .header("OpenAI-Beta", "assistants=v2")
+            .json(&payload)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => Ok(()),
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(format!(
+                "Failed to send request to OpenAI: {}",
+                e
+            ))),
+        }
+    }
 }
 // think about websockets here
 /// Handles chat interactions with an OpenAI assistant.
@@ -921,8 +960,8 @@ pub struct AssistantChatForm {
 // Handles chat interactions with an OpenAI assistant using form data.
 pub async fn assistant_chat_handler_form(
     Extension(db_pool): Extension<MySqlPool>,
-    Extension(assistant_id): Extension<Arc<RwLock<String>>>, // Change this line
-    AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>, // Use Form extractor here
+    Extension(assistant_id): Extension<Arc<RwLock<String>>>,
+    AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>,
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
     let db = DB { pool: db_pool };
     let user_id = &assistant_chat_form.user_id;
@@ -932,16 +971,16 @@ pub async fn assistant_chat_handler_form(
         Some(id) => id,
         None => {
             let mut chat = Chat {
-                id: String::new(), // Temporarily set to String::new(), will be updated below
+                id: String::new(),
                 messages: Vec::new(),
             };
             chat.initialize().await?;
-            let new_chat_id = chat.id; // No need to parse as i64, it's already a String
+            let new_chat_id = chat.id;
             db.save_chat_id(user_id, &new_chat_id).await?;
             new_chat_id
         }
     };
-    // log user_id and message
+    // Log user_id and message
     info!("chat_id: {}, message: {}", user_id, message);
     // Save the user's message to the database
     db.save_message_to_db(&chat_id.to_string(), "user", message)
@@ -961,31 +1000,26 @@ pub async fn assistant_chat_handler_form(
     // Acquire a read lock when you only need to read the value
     let assistant_id_read_guard = assistant_id.read().await;
     let assistant_id_string = assistant_id_read_guard.clone();
-
     run.create(&chat.id, &assistant_id_string).await?;
     // Check the status of the run until it's completed or a timeout occurs
     let start_time = std::time::Instant::now();
     while start_time.elapsed().as_secs() < TIMEOUT_DURATION {
-        run.get_status(&chat.id).await?; // This sets the run.status field
+        run.get_status(&chat.id).await?;
         if run.status == "completed" {
             info!("Run completed, status: {}", run.status);
             break;
         }
         info!("Run not completed, current status: {}", run.status);
-        // Sleep for a short duration before checking the status again
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
-    // Use the run.status field for the final check
-    // If run is not finished save and return a sorry message with the role "error"
+    // If run is not finished, save and return a sorry message with the role "error"
     if run.status != "completed" {
-        // Save the error message to the database
         db.save_message_to_db(
             &chat_id,
             "error",
             "Sorry I am currently facing some technical issues, please try again.",
         )
         .await?;
-        // Return the error message as part of the response, wrapped in a vector
         return Ok(Json(AssistantChatResponse {
             messages: vec![SimplifiedMessage {
                 created_at: Utc::now().timestamp(),
@@ -998,7 +1032,6 @@ pub async fn assistant_chat_handler_form(
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
     if let Some(last_message) = chat.messages.last() {
-        // Save the assistant message to the database
         db.save_message_to_db(&chat_id, "assistant", &last_message.text)
             .await?;
     }
