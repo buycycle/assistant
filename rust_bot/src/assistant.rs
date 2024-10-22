@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 
 use reqwest::{multipart::Form, multipart::Part, Client};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use serde_json::json;
 use std::env;
@@ -23,7 +24,6 @@ use std::env;
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, FromRow, MySql, MySqlPool};
 
-use crate::function::get_order_status_tool_definition;
 
 // Define a constant for the timeout duration of assistant response
 const TIMEOUT_DURATION: u64 = 100;
@@ -155,6 +155,7 @@ struct Bike {
     rider_height_min: Option<f64>,
     slug: String,
 }
+
 impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
         let database_url = env::var("DATABASE_URL_PROD").map_err(|_| {
@@ -522,6 +523,65 @@ impl Assistant {
             ))),
         }
     }
+    pub async fn initialize_with_tools(
+        &mut self,
+        files_info_code_interpreter: Vec<FileInfo>,
+        vector_store_id: String,
+    ) -> Result<(), AssistantError> {
+        let client = Client::new();
+        let api_key = env::var("OPENAI_API_KEY")
+            .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        let file_ids_code_interpreter: Vec<String> = files_info_code_interpreter
+            .into_iter()
+            .map(|file_info| file_info.file_id)
+            .collect();
+        let payload = json!({
+            "instructions": self.instruction,
+            "name": self.name,
+            "tools": get_order_status_tool_definition(),
+            "tool_resources": {
+                "code_interpreter": {
+                    "file_ids": file_ids_code_interpreter
+                },
+                "file_search": {
+                    "vector_store_ids": [vector_store_id]
+                }
+            },
+            "model": self.model,
+        });
+        let response = client
+            .post("https://api.openai.com/v1/assistants")
+            .header("OpenAI-Beta", "assistants=v2")
+            .bearer_auth(&api_key)
+            .json(&payload)
+            .send()
+            .await;
+        match response {
+            Ok(res) if res.status().is_success() => match res.json::<serde_json::Value>().await {
+                Ok(assistant_response) => {
+                    if let Some(id) = assistant_response["id"].as_str() {
+                        self.id = id.to_string();
+                        Ok(())
+                    } else {
+                        Err(AssistantError::OpenAIError(
+                            "Failed to extract assistant ID from response".to_string(),
+                        ))
+                    }
+                }
+                Err(_) => Err(AssistantError::OpenAIError(
+                    "Failed to parse response from OpenAI".to_string(),
+                )),
+            },
+            Ok(res) => {
+                let error_message = res.text().await.unwrap_or_default();
+                Err(AssistantError::OpenAIError(error_message))
+            }
+            Err(e) => Err(AssistantError::OpenAIError(format!(
+                "Failed to send request to OpenAI: {}",
+                e
+            ))),
+        }
+    }
 
     /// Delete the OpenAI assistant with the given ID
     pub async fn delete(&self) -> Result<(), AssistantError> {
@@ -619,14 +679,11 @@ pub async fn create_assistant(
         model: model.to_string(),
         instruction: ressources.instruction.clone(),
     };
-    // Get the tools JSON
-    let tools = get_order_status_tool_definition();
     // Initialize the assistant by creating it on the OpenAI platform
     assistant
         .initialize_with_tools(
             ressources.files_info_code_interpreter,
             ressources.vector_store_id,
-            tools,
         )
         .await?;
     info!("Assistant created with ID: {}", assistant.id);
@@ -835,6 +892,27 @@ impl DB {
 struct Run {
     id: String,
     status: String,
+    required_action: Option<RequiredAction>,
+}
+#[derive(Deserialize, Debug)]
+struct RequiredAction {
+    submit_tool_outputs: Option<SubmitToolOutputs>,
+}
+#[derive(Deserialize, Debug)]
+struct SubmitToolOutputs {
+    tool_calls: Vec<ToolCall>,
+}
+#[derive(Deserialize, Debug)]
+struct ToolCall {
+    id: String,
+    function: FunctionCall,
+    #[serde(rename = "type")]
+    call_type: String,
+}
+#[derive(Deserialize, Debug)]
+struct FunctionCall {
+    arguments: Value,
+    name: String,
 }
 impl Run {
     /// Creates a run for a given thread and assistant and assigns the ID and status to the struct.
@@ -920,9 +998,11 @@ impl Run {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
+        // Construct the payload with the tool outputs
         let payload = json!({
             "tool_outputs": tool_outputs
         });
+        // Send the request to submit the tool outputs
         let response = client
             .post(&format!(
                 "https://api.openai.com/v1/threads/{}/runs/{}/tool_outputs",
@@ -934,17 +1014,33 @@ impl Run {
             .json(&payload)
             .send()
             .await;
+        // Handle the response
         match response {
-            Ok(res) if res.status().is_success() => Ok(()),
+            Ok(res) if res.status().is_success() => {
+                log::info!("Tool outputs submitted successfully for run ID: {}", self.id);
+                Ok(())
+            }
             Ok(res) => {
                 let error_message = res.text().await.unwrap_or_default();
+                log::error!("Failed to submit tool outputs: {}", error_message);
                 Err(AssistantError::OpenAIError(error_message))
             }
-            Err(e) => Err(AssistantError::OpenAIError(format!(
-                "Failed to send request to OpenAI: {}",
-                e
-            ))),
+            Err(e) => {
+                log::error!("Failed to send request to OpenAI: {}", e);
+                Err(AssistantError::OpenAIError(format!(
+                    "Failed to send request to OpenAI: {}",
+                    e
+                )))
+            }
         }
+    }
+    pub async fn get_required_action(&self) -> Result<Option<&SubmitToolOutputs>, AssistantError> {
+        if let Some(required_action) = &self.required_action {
+            if let Some(submit_tool_outputs) = &required_action.submit_tool_outputs {
+                return Ok(Some(submit_tool_outputs));
+            }
+        }
+        Ok(None)
     }
 }
 // think about websockets here
@@ -983,8 +1079,7 @@ pub async fn assistant_chat_handler_form(
     // Log user_id and message
     info!("chat_id: {}, message: {}", user_id, message);
     // Save the user's message to the database
-    db.save_message_to_db(&chat_id.to_string(), "user", message)
-        .await?;
+    db.save_message_to_db(&chat_id.to_string(), "user", message).await?;
     // Initialize the chat struct with the correct chat_id type
     let mut chat = Chat {
         id: chat_id.to_string(),
@@ -996,6 +1091,7 @@ pub async fn assistant_chat_handler_form(
     let mut run = Run {
         id: String::new(),
         status: String::new(),
+        required_action: None,
     };
     // Acquire a read lock when you only need to read the value
     let assistant_id_read_guard = assistant_id.read().await;
@@ -1005,7 +1101,21 @@ pub async fn assistant_chat_handler_form(
     let start_time = std::time::Instant::now();
     while start_time.elapsed().as_secs() < TIMEOUT_DURATION {
         run.get_status(&chat.id).await?;
-        if run.status == "completed" {
+        if run.status == "requires_action" {
+            if let Some(submit_tool_outputs) = run.get_required_action().await? {
+                for tool_call in &submit_tool_outputs.tool_calls {
+                    if tool_call.function.name == "get_order_status" {
+                        let order_id = tool_call.function.arguments["order_id"].as_str().unwrap();
+                        let order_status = get_order_status(&db_pool, order_id).await?;
+                        let tool_output = json!({
+                            "tool_call_id": tool_call.id,
+                            "output": order_status.unwrap_or("Unknown order ID".to_string())
+                        });
+                        run.submit_tool_outputs(&chat.id, vec![tool_output]).await?;
+                    }
+                }
+            }
+        } else if run.status == "completed" {
             info!("Run completed, status: {}", run.status);
             break;
         }
@@ -1024,19 +1134,47 @@ pub async fn assistant_chat_handler_form(
             messages: vec![SimplifiedMessage {
                 created_at: Utc::now().timestamp(),
                 role: "error".to_string(),
-                text: "Sorry I am currently facing some technical issues, please try again."
-                    .to_string(),
+                text: "Sorry I am currently facing some technical issues, please try again.".to_string(),
             }],
         }));
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
     if let Some(last_message) = chat.messages.last() {
-        db.save_message_to_db(&chat_id, "assistant", &last_message.text)
-            .await?;
+        db.save_message_to_db(&chat_id, "assistant", &last_message.text).await?;
     }
     // Return the updated conversation history including the assistant's response
     Ok(Json(AssistantChatResponse {
         messages: chat.messages,
     }))
+}
+async fn get_order_status(
+    _db_pool: &MySqlPool,
+    _order_id: &str,
+) -> Result<Option<String>, AssistantError> {
+    // Dummy function that returns a fixed delivery date
+    let fixed_delivery_date = "2023-12-31 12:00:00";
+    Ok(Some(fixed_delivery_date.to_string()))
+}
+
+pub fn get_order_status_tool_definition() -> Value {
+    json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "get_order_status",
+                "description": "Get the status of an order by its ID",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "order_id": {
+                            "type": "string",
+                            "description": "The ID of the order"
+                        }
+                    },
+                    "required": ["order_id"]
+                }
+            }
+        }
+    ])
 }
