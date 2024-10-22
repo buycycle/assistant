@@ -24,7 +24,6 @@ use std::env;
 use sqlx::Pool;
 use sqlx::{mysql::MySqlPoolOptions, FromRow, MySql, MySqlPool};
 
-
 // Define a constant for the timeout duration of assistant response
 const TIMEOUT_DURATION: u64 = 100;
 
@@ -959,7 +958,7 @@ impl Run {
         }
     }
     /// Retrieves the status of the run for the given thread.
-    pub async fn get_status(&mut self, chat_id: &str) -> Result<(), AssistantError> {
+    pub async fn get_response(&mut self, chat_id: &str) -> Result<(), AssistantError> {
         let client = Client::new();
         let api_key = env::var("OPENAI_API_KEY")
             .map_err(|_| AssistantError::OpenAIError("OPENAI_API_KEY not set".to_string()))?;
@@ -974,10 +973,26 @@ impl Run {
             .await;
         match response {
             Ok(res) if res.status().is_success() => {
-                let run_status_response = res.json::<RunResponse>().await.map_err(|_| {
+                // Parse the response into a serde_json::Value
+                let run_response: serde_json::Value = res.json().await.map_err(|_| {
                     AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
                 })?;
-                self.status = run_status_response.status;
+                log::info!("Run response: {:?}", run_response);
+                // Extract the status
+                if let Some(status) = run_response.get("status").and_then(|s| s.as_str()) {
+                    self.status = status.to_string();
+                }
+                // Extract and parse the required_action if present
+                if let Some(required_action_value) = run_response.get("required_action") {
+                    self.required_action = serde_json::from_value(required_action_value.clone())
+                        .map_err(|_| {
+                            AssistantError::OpenAIError(
+                                "Failed to parse RequiredAction".to_string(),
+                            )
+                        })?;
+                } else {
+                    self.required_action = None;
+                }
                 Ok(())
             }
             Ok(res) => {
@@ -1005,7 +1020,7 @@ impl Run {
         // Send the request to submit the tool outputs
         let response = client
             .post(&format!(
-                "https://api.openai.com/v1/threads/{}/runs/{}/tool_outputs",
+                "https://api.openai.com/v1/threads/{}/runs/{}/submit_tool_outputs",
                 chat_id, self.id
             ))
             .header("Content-Type", "application/json")
@@ -1017,7 +1032,10 @@ impl Run {
         // Handle the response
         match response {
             Ok(res) if res.status().is_success() => {
-                log::info!("Tool outputs submitted successfully for run ID: {}", self.id);
+                log::info!(
+                    "Tool outputs submitted successfully for run ID: {}",
+                    self.id
+                );
                 Ok(())
             }
             Ok(res) => {
@@ -1033,14 +1051,6 @@ impl Run {
                 )))
             }
         }
-    }
-    pub async fn get_required_action(&self) -> Result<Option<&SubmitToolOutputs>, AssistantError> {
-        if let Some(required_action) = &self.required_action {
-            if let Some(submit_tool_outputs) = &required_action.submit_tool_outputs {
-                return Ok(Some(submit_tool_outputs));
-            }
-        }
-        Ok(None)
     }
 }
 // think about websockets here
@@ -1059,7 +1069,9 @@ pub async fn assistant_chat_handler_form(
     Extension(assistant_id): Extension<Arc<RwLock<String>>>,
     AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>,
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
-    let db = DB { pool: db_pool };
+    let db = DB {
+        pool: db_pool.clone(),
+    };
     let user_id = &assistant_chat_form.user_id;
     let message = &assistant_chat_form.message;
     // Initialize chat or get existing chat_id
@@ -1079,7 +1091,8 @@ pub async fn assistant_chat_handler_form(
     // Log user_id and message
     info!("chat_id: {}, message: {}", user_id, message);
     // Save the user's message to the database
-    db.save_message_to_db(&chat_id.to_string(), "user", message).await?;
+    db.save_message_to_db(&chat_id.to_string(), "user", message)
+        .await?;
     // Initialize the chat struct with the correct chat_id type
     let mut chat = Chat {
         id: chat_id.to_string(),
@@ -1100,18 +1113,40 @@ pub async fn assistant_chat_handler_form(
     // Check the status of the run until it's completed or a timeout occurs
     let start_time = std::time::Instant::now();
     while start_time.elapsed().as_secs() < TIMEOUT_DURATION {
-        run.get_status(&chat.id).await?;
+        // Log the current status of the run
+        log::info!("Checking run status for chat ID: {}", chat.id);
+        run.get_response(&chat.id).await?;
         if run.status == "requires_action" {
-            if let Some(submit_tool_outputs) = run.get_required_action().await? {
-                for tool_call in &submit_tool_outputs.tool_calls {
-                    if tool_call.function.name == "get_order_status" {
-                        let order_id = tool_call.function.arguments["order_id"].as_str().unwrap();
-                        let order_status = get_order_status(&db_pool, order_id).await?;
-                        let tool_output = json!({
-                            "tool_call_id": tool_call.id,
-                            "output": order_status.unwrap_or("Unknown order ID".to_string())
-                        });
-                        run.submit_tool_outputs(&chat.id, vec![tool_output]).await?;
+            log::info!("Run requires action for chat ID: {}", chat.id);
+            if let Some(required_action) = &run.required_action {
+                if let Some(submit_tool_outputs) = &required_action.submit_tool_outputs {
+                    for tool_call in &submit_tool_outputs.tool_calls {
+                        log::info!("Processing tool call with ID: {}", tool_call.id);
+                        if tool_call.function.name == "get_order_status" {
+                            // Convert the arguments to a string if it's a JSON string
+                            if let Some(arguments_str) = tool_call.function.arguments.as_str() {
+                                // Parse the arguments string into a JSON object
+                                if let Ok(arguments_json) = serde_json::from_str::<serde_json::Value>(arguments_str) {
+                                    if let Some(order_id) = arguments_json.get("order_id").and_then(|v| v.as_str()) {
+                                        log::info!("Fetching order status for order ID: {}", order_id);
+                                        let order_status = get_order_status(&db_pool, order_id).await?;
+                                        log::info!("Order status for order ID {}: {:?}", order_id, order_status);
+                                        let tool_output = json!({
+                                            "tool_call_id": tool_call.id,
+                                            "output": order_status.unwrap_or("Unknown order ID".to_string())
+                                        });
+                                        log::info!("Submitting tool output {} for tool call ID: {}", tool_output, tool_call.id);
+                                        run.submit_tool_outputs(&chat.id, vec![tool_output]).await?;
+                                    } else {
+                                        log::error!("Order ID is not a string or not found for tool call ID: {}", tool_call.id);
+                                    }
+                                } else {
+                                    log::error!("Failed to parse arguments for tool call ID: {}", tool_call.id);
+                                }
+                            } else {
+                                log::error!("Arguments are not a string for tool call ID: {}", tool_call.id);
+                            }
+                        }
                     }
                 }
             }
@@ -1134,14 +1169,16 @@ pub async fn assistant_chat_handler_form(
             messages: vec![SimplifiedMessage {
                 created_at: Utc::now().timestamp(),
                 role: "error".to_string(),
-                text: "Sorry I am currently facing some technical issues, please try again.".to_string(),
+                text: "Sorry I am currently facing some technical issues, please try again."
+                    .to_string(),
             }],
         }));
     }
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
     if let Some(last_message) = chat.messages.last() {
-        db.save_message_to_db(&chat_id, "assistant", &last_message.text).await?;
+        db.save_message_to_db(&chat_id, "assistant", &last_message.text)
+            .await?;
     }
     // Return the updated conversation history including the assistant's response
     Ok(Json(AssistantChatResponse {
@@ -1153,8 +1190,8 @@ async fn get_order_status(
     _order_id: &str,
 ) -> Result<Option<String>, AssistantError> {
     // Dummy function that returns a fixed delivery date
-    let fixed_delivery_date = "2023-12-31 12:00:00";
-    Ok(Some(fixed_delivery_date.to_string()))
+    let order_status= "delivered";
+    Ok(Some(order_status.to_string()))
 }
 
 pub fn get_order_status_tool_definition() -> Value {
