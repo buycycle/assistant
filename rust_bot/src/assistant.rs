@@ -1255,7 +1255,7 @@ async fn get_orders(
         None => return Err(AssistantError::OpenAIError("Authorization token not found".to_string())),
     };
     // Define the API endpoint
-    let api_url = "https://api.buycycle.com/en/api/v3/account/orders?offset=0&limit=11&type=buy";
+    let api_url = "https://api.buycycle.com/en/api/v3/account/orders?offset=0&limit=100&type=sale";
     // Create a new HTTP client
     let client = Client::new();
     // Send the GET request to the API
