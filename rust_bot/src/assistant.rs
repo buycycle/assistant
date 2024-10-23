@@ -180,6 +180,7 @@ impl Ressources {
             JOIN buycycle.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
             JOIN buycycle.bike_categories ON bikes.bike_category_id = bike_categories.id
             WHERE bikes.status = 'active'
+            LIMIT 100
         ";
         // Execute the query using sqlx
         let bikes: Vec<Bike> = sqlx::query_as(main_query)
@@ -537,7 +538,7 @@ impl Assistant {
         let payload = json!({
             "instructions": self.instruction,
             "name": self.name,
-            "tools": get_order_status_tool_definition(),
+            "tools": get_tool_definition(),
             "tool_resources": {
                 "code_interpreter": {
                     "file_ids": file_ids_code_interpreter
@@ -977,7 +978,7 @@ impl Run {
                 let run_response: serde_json::Value = res.json().await.map_err(|_| {
                     AssistantError::OpenAIError("Failed to parse response from OpenAI".to_string())
                 })?;
-                log::info!("Run response: {:?}", run_response);
+                log::debug!("Run response: {:?}", run_response);
                 // Extract the status
                 if let Some(status) = run_response.get("status").and_then(|s| s.as_str()) {
                     self.status = status.to_string();
@@ -1122,15 +1123,14 @@ pub async fn assistant_chat_handler_form(
                 if let Some(submit_tool_outputs) = &required_action.submit_tool_outputs {
                     for tool_call in &submit_tool_outputs.tool_calls {
                         log::info!("Processing tool call with ID: {}", tool_call.id);
-                        if tool_call.function.name == "get_order_status" {
-                            // Convert the arguments to a string if it's a JSON string
+                        if tool_call.function.name == "get_order_status_dummy" {
+                            // Existing logic for get_order_status_dummy
                             if let Some(arguments_str) = tool_call.function.arguments.as_str() {
-                                // Parse the arguments string into a JSON object
                                 if let Ok(arguments_json) = serde_json::from_str::<serde_json::Value>(arguments_str) {
                                     if let Some(order_id) = arguments_json.get("order_id").and_then(|v| v.as_str()) {
                                         log::info!("Fetching order status for order ID: {}", order_id);
-                                        let order_status = get_order_status(&db_pool, order_id).await?;
-                                        log::info!("Order status for order ID {}: {:?}", order_id, order_status);
+                                        let order_status = get_order_status_dummy(&db_pool, user_id, order_id).await?;
+                                        log::info!("Order status for user ID {}, order ID {}: {:?}", user_id, order_id, order_status);
                                         let tool_output = json!({
                                             "tool_call_id": tool_call.id,
                                             "output": order_status.unwrap_or("Unknown order ID".to_string())
@@ -1140,6 +1140,25 @@ pub async fn assistant_chat_handler_form(
                                     } else {
                                         log::error!("Order ID is not a string or not found for tool call ID: {}", tool_call.id);
                                     }
+                                } else {
+                                    log::error!("Failed to parse arguments for tool call ID: {}", tool_call.id);
+                                }
+                            } else {
+                                log::error!("Arguments are not a string for tool call ID: {}", tool_call.id);
+                            }
+                        } else if tool_call.function.name == "get_orders" {
+                            // New logic for get_orders
+                            if let Some(arguments_str) = tool_call.function.arguments.as_str() {
+                                if let Ok(arguments_json) = serde_json::from_str::<serde_json::Value>(arguments_str) {
+                                    log::info!("Fetching orders for user ID: {}", user_id);
+                                    let orders = get_orders(user_id, &db_pool).await?;
+                                    log::info!("Orders for user ID {}: {:?}", user_id, orders);
+                                    let tool_output = json!({
+                                        "tool_call_id": tool_call.id,
+                                        "output": orders.unwrap_or("No orders found".to_string())
+                                    });
+                                    log::info!("Submitting tool output {} for tool call ID: {}", tool_output, tool_call.id);
+                                    run.submit_tool_outputs(&chat.id, vec![tool_output]).await?;
                                 } else {
                                     log::error!("Failed to parse arguments for tool call ID: {}", tool_call.id);
                                 }
@@ -1185,8 +1204,9 @@ pub async fn assistant_chat_handler_form(
         messages: chat.messages,
     }))
 }
-async fn get_order_status(
+async fn get_order_status_dummy(
     _db_pool: &MySqlPool,
+    _user_id: &str,
     _order_id: &str,
 ) -> Result<Option<String>, AssistantError> {
     // Dummy function that returns a fixed delivery date
@@ -1194,13 +1214,81 @@ async fn get_order_status(
     Ok(Some(order_status.to_string()))
 }
 
-pub fn get_order_status_tool_definition() -> Value {
+async fn get_authorization_token(
+    db_pool: &MySqlPool,
+    user_id: &str,
+) -> Result<Option<String>, AssistantError> {
+    let user_id_int: i32 = user_id.parse().map_err(|e| {
+        AssistantError::DatabaseError(format!("Failed to parse user_id: {}", e))
+    })?;
+    let main_query = "
+        SELECT custom_auth_token FROM users WHERE id = ?
+    ";
+    let authorization_token: Option<String> = sqlx::query_scalar(main_query)
+        .bind(user_id_int)
+        .fetch_optional(db_pool)
+        .await
+        .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+    Ok(authorization_token)
+}
+async fn get_orders(
+    user_id: &str,
+    db_pool: &MySqlPool,
+) -> Result<Option<String>, AssistantError> {
+    // Get the authorization token
+    let authorization_token = get_authorization_token(db_pool, user_id).await?;
+
+    // Check if the authorization token is available
+    let token = match authorization_token {
+        Some(token) => token,
+        None => return Err(AssistantError::OpenAIError("Authorization token not found".to_string())),
+    };
+    // Define the API endpoint
+    let api_url = "https://api.buycycle.com/en/api/v3/account/orders?offset=0&limit=11&type=buy";
+    // Create a new HTTP client
+    let client = Client::new();
+    // Send the GET request to the API
+    let response = client
+        .get(api_url)
+        .header("X-Custom-Authorization", token)
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+    // Check if the response is successful
+    if response.status().is_success() {
+        // Parse the response body as a string
+        let order_status = response.text().await.map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+        Ok(Some(order_status))
+    } else {
+        // Handle non-successful response
+        let error_message = response.text().await.unwrap_or_default();
+        Err(AssistantError::OpenAIError(error_message))
+    }
+}
+pub fn get_tool_definition() -> Value {
     json!([
         {
             "type": "function",
             "function": {
+                "name": "get_orders",
+                "description": "Retrieve the list of my oders",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "user_id": {
+                            "type": "string",
+                            "description": "The ID of the user"
+                        }
+                    },
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "get_order_status",
-                "description": "Get the status of an order by its ID",
+                "description": "Get the status of an order by the order id",
                 "parameters": {
                     "type": "object",
                     "properties": {

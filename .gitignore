@@ -1,6 +1,8 @@
 rust_bot/target
 rust_bot/context
 rust_bot/operations
+rust_bot/src/context
 
 .env
 
+to-does.md
