@@ -1224,17 +1224,28 @@ async fn get_authorization_token(
     let main_query = "
         SELECT custom_auth_token FROM users WHERE id = ?
     ";
-    let authorization_token: Option<String> = sqlx::query_scalar(main_query)
-        .bind(user_id_int)
-        .fetch_optional(db_pool)
-        .await
-        .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-    Ok(authorization_token)
+    //let authorization_token: Option<String> = sqlx::query_scalar(main_query)
+    //    .bind(user_id_int)
+    //    .fetch_optional(db_pool)
+    //    .await
+    //    .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
+    let authorization_token = env::var("X_Custom_Authorization").map_err(|_| {
+        AssistantError::DatabaseError(
+            "X_Custom_Authorization environment variable not set".to_string(),
+        )
+    })?;
+
+    Ok(Some(authorization_token))
 }
 async fn get_orders(
     user_id: &str,
     db_pool: &MySqlPool,
 ) -> Result<Option<String>, AssistantError> {
+    let x_proxy_authorization = env::var("X_PROXY_AUTHORIZATION").map_err(|_| {
+        AssistantError::DatabaseError(
+            "X_PROXY_AUTHORIZATION environment variable not set".to_string(),
+        )
+    })?;
     // Get the authorization token
     let authorization_token = get_authorization_token(db_pool, user_id).await?;
 
@@ -1252,6 +1263,7 @@ async fn get_orders(
         .get(api_url)
         .header("X-Custom-Authorization", token)
         .header("Content-Type", "application/json")
+        .header("X-Proxy-Authorization", x_proxy_authorization)
         .send()
         .await
         .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
