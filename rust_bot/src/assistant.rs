@@ -5,7 +5,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
-use log::info;
+use log::{info, Log};
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -135,6 +135,7 @@ pub struct FileInfo {
 }
 #[derive(Clone)]
 pub struct Ressources {
+    db_pool: Pool<MySql>,
     vector_store_id: String,
     pub files_info_file_search: Vec<FileInfo>,
     pub files_info_code_interpreter: Vec<FileInfo>,
@@ -154,19 +155,27 @@ struct Bike {
     rider_height_min: Option<f64>,
     slug: String,
 }
-
 impl Ressources {
+    pub fn new(
+        db_pool: Pool<MySql>,
+        folder_path_file_search: String,
+        folder_path_code_interpreter: String,
+        scrape_urls: Vec<String>,
+        instruction_file_path: String,
+    ) -> Self {
+        Ressources {
+            db_pool,
+            vector_store_id: String::new(),
+            files_info_file_search: Vec::new(),
+            files_info_code_interpreter: Vec::new(),
+            folder_path_file_search,
+            folder_path_code_interpreter,
+            scrape_urls,
+            instruction_file_path,
+            instruction: String::new(),
+        }
+    }
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
-        let database_url = env::var("DATABASE_URL_PROD").map_err(|_| {
-            AssistantError::DatabaseError(
-                "DATABASE_URL_PROD environment variable not set".to_string(),
-            )
-        })?;
-        // Create a connection pool for MySQL
-        let pool: Pool<MySql> = MySqlPoolOptions::new()
-            .connect(&database_url)
-            .await
-            .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         // Define the query
         let main_query = "
             SELECT buycycle.bikes.slug as slug,
@@ -184,7 +193,7 @@ impl Ressources {
         ";
         // Execute the query using sqlx
         let bikes: Vec<Bike> = sqlx::query_as(main_query)
-            .fetch_all(&pool)
+            .fetch_all(&self.db_pool)
             .await
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         // Serialize the bikes to JSON
@@ -643,6 +652,7 @@ impl Assistant {
 }
 /// scrape urls and upload the resulting files to OpenAI
 pub async fn create_ressources(
+    db_pool: Pool<MySql>,
     folder_path_file_search: &str,
     folder_path_code_interpreter: &str,
     scrape_urls: Vec<String>,
@@ -650,6 +660,7 @@ pub async fn create_ressources(
 ) -> Result<Ressources, AssistantError> {
     // Initialize the Files struct directly
     let mut files = Ressources {
+        db_pool: db_pool,
         vector_store_id: String::new(),
         files_info_file_search: Vec::new(), // Use files_info to store FileInfo objects
         files_info_code_interpreter: Vec::new(), // Use files_info to store FileInfo objects
@@ -831,45 +842,50 @@ impl Chat {
 // if yes, return chat_id and initialize chat struct
 // if no, initialize chat struct, save user_id, chat_id to db table chats and return chat_id
 
-pub struct DB {
-    pub pool: Pool<MySql>,
-}
-
+pub struct DB;
 impl DB {
-    /// Creates a new database connection pool use dev DB.
-    pub async fn create_db_pool() -> Result<Self, AssistantError> {
-        let database_url = env::var("DATABASE_URL").map_err(|_| {
-            AssistantError::DatabaseError("DATABASE_URL environment variable not set".to_string())
-        })?;
+    /// Creates a new database connection pool using the provided database URL.
+    pub async fn create_pool(database_url: &str) -> Result<Pool<MySql>, AssistantError> {
         let pool: Pool<MySql> = MySqlPoolOptions::new()
-            .connect(&database_url)
+            .connect(database_url)
             .await
             .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        Ok(DB { pool })
+        Ok(pool)
     }
+}
+
+pub struct LOG {
+    db_pool: Pool<MySql>,
+}
+impl LOG {
+    /// Creates a new Log instance with the given database connection pool.
+    pub fn new(db_pool: Pool<MySql>) -> Self {
+        LOG { db_pool }
+    }
+    /// Retrieves the chat ID for a given user ID from the database.
     pub async fn get_chat_id(&self, user_id: &str) -> Result<Option<String>, AssistantError> {
         let result = sqlx::query!(
             "SELECT id FROM buycycle_chatbot.chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
             user_id
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&self.db_pool)
         .await
         .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-        Ok(result.map(|row| row.id)) // row.id is a String, but result is an Option due to fetch_optional
+        Ok(result.map(|row| row.id))
     }
-    /// Saves the chat ID into the database.
+    /// Saves a new chat ID for a user into the database.
     pub async fn save_chat_id(&self, user_id: &str, chat_id: &str) -> Result<(), AssistantError> {
         sqlx::query!(
             "INSERT INTO buycycle_chatbot.chats (id, user_id) VALUES (?, ?)",
             chat_id,
             user_id
         )
-        .execute(&self.pool)
+        .execute(&self.db_pool)
         .await
         .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         Ok(())
     }
-    /// Saves a user's message to the database.
+    /// Saves a message to the database for a given chat ID.
     pub async fn save_message_to_db(
         &self,
         chat_id: &str,
@@ -882,13 +898,12 @@ impl DB {
             role,
             message
         )
-        .execute(&self.pool)
+        .execute(&self.db_pool)
         .await
         .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
         Ok(())
     }
 }
-
 struct Run {
     id: String,
     status: String,
@@ -1066,17 +1081,18 @@ pub struct AssistantChatForm {
 
 // Handles chat interactions with an OpenAI assistant using form data.
 pub async fn assistant_chat_handler_form(
-    Extension(db_pool): Extension<MySqlPool>,
+    Extension(db_pool_buycycle): Extension<MySqlPool>,
+    Extension(db_pool_log): Extension<MySqlPool>,
     Extension(assistant_id): Extension<Arc<RwLock<String>>>,
     AxumForm(assistant_chat_form): AxumForm<AssistantChatForm>,
 ) -> Result<Json<AssistantChatResponse>, AssistantError> {
-    let db = DB {
-        pool: db_pool.clone(),
+    let log = LOG {
+        db_pool: db_pool_log.clone(),
     };
     let user_id = &assistant_chat_form.user_id;
     let message = &assistant_chat_form.message;
     // Initialize chat or get existing chat_id
-    let chat_id = match db.get_chat_id(user_id).await? {
+    let chat_id = match log.get_chat_id(user_id).await? {
         Some(id) => id,
         None => {
             let mut chat = Chat {
@@ -1085,14 +1101,14 @@ pub async fn assistant_chat_handler_form(
             };
             chat.initialize().await?;
             let new_chat_id = chat.id;
-            db.save_chat_id(user_id, &new_chat_id).await?;
+            log.save_chat_id(user_id, &new_chat_id).await?;
             new_chat_id
         }
     };
     // Log user_id and message
     info!("chat_id: {}, message: {}", user_id, message);
     // Save the user's message to the database
-    db.save_message_to_db(&chat_id.to_string(), "user", message)
+    log.save_message_to_db(&chat_id.to_string(), "user", message)
         .await?;
     // Initialize the chat struct with the correct chat_id type
     let mut chat = Chat {
@@ -1126,44 +1142,84 @@ pub async fn assistant_chat_handler_form(
                         if tool_call.function.name == "get_order_status_dummy" {
                             // Existing logic for get_order_status_dummy
                             if let Some(arguments_str) = tool_call.function.arguments.as_str() {
-                                if let Ok(arguments_json) = serde_json::from_str::<serde_json::Value>(arguments_str) {
-                                    if let Some(order_id) = arguments_json.get("order_id").and_then(|v| v.as_str()) {
-                                        log::info!("Fetching order status for order ID: {}", order_id);
-                                        let order_status = get_order_status_dummy(&db_pool, user_id, order_id).await?;
-                                        log::info!("Order status for user ID {}, order ID {}: {:?}", user_id, order_id, order_status);
+                                if let Ok(arguments_json) =
+                                    serde_json::from_str::<serde_json::Value>(arguments_str)
+                                {
+                                    if let Some(order_id) =
+                                        arguments_json.get("order_id").and_then(|v| v.as_str())
+                                    {
+                                        log::info!(
+                                            "Fetching order status for order ID: {}",
+                                            order_id
+                                        );
+                                        let order_status = get_order_status_dummy(
+                                            &db_pool_buycycle,
+                                            user_id,
+                                            order_id,
+                                        )
+                                        .await?;
+                                        log::info!(
+                                            "Order status for user ID {}, order ID {}: {:?}",
+                                            user_id,
+                                            order_id,
+                                            order_status
+                                        );
                                         let tool_output = json!({
                                             "tool_call_id": tool_call.id,
                                             "output": order_status.unwrap_or("Unknown order ID".to_string())
                                         });
-                                        log::info!("Submitting tool output {} for tool call ID: {}", tool_output, tool_call.id);
-                                        run.submit_tool_outputs(&chat.id, vec![tool_output]).await?;
+                                        log::info!(
+                                            "Submitting tool output {} for tool call ID: {}",
+                                            tool_output,
+                                            tool_call.id
+                                        );
+                                        run.submit_tool_outputs(&chat.id, vec![tool_output])
+                                            .await?;
                                     } else {
                                         log::error!("Order ID is not a string or not found for tool call ID: {}", tool_call.id);
                                     }
                                 } else {
-                                    log::error!("Failed to parse arguments for tool call ID: {}", tool_call.id);
+                                    log::error!(
+                                        "Failed to parse arguments for tool call ID: {}",
+                                        tool_call.id
+                                    );
                                 }
                             } else {
-                                log::error!("Arguments are not a string for tool call ID: {}", tool_call.id);
+                                log::error!(
+                                    "Arguments are not a string for tool call ID: {}",
+                                    tool_call.id
+                                );
                             }
                         } else if tool_call.function.name == "get_orders" {
                             // New logic for get_orders
                             if let Some(arguments_str) = tool_call.function.arguments.as_str() {
-                                if let Ok(arguments_json) = serde_json::from_str::<serde_json::Value>(arguments_str) {
+                                if let Ok(arguments_json) =
+                                    serde_json::from_str::<serde_json::Value>(arguments_str)
+                                {
                                     log::info!("Fetching orders for user ID: {}", user_id);
-                                    let orders = get_orders(user_id, &db_pool).await?;
+                                    let orders = get_orders(user_id, &db_pool_buycycle).await?;
                                     log::info!("Orders for user ID {}: {:?}", user_id, orders);
                                     let tool_output = json!({
                                         "tool_call_id": tool_call.id,
                                         "output": orders.unwrap_or("No orders found".to_string())
                                     });
-                                    log::info!("Submitting tool output {} for tool call ID: {}", tool_output, tool_call.id);
+                                    log::info!(
+                                        "Submitting tool output {} for tool call ID: {}",
+                                        tool_output,
+                                        tool_call.id
+                                    );
                                     run.submit_tool_outputs(&chat.id, vec![tool_output]).await?;
                                 } else {
-                                    log::error!("Failed to parse arguments for tool call ID: {}", tool_call.id);
+                                    log::error!(
+                                        "Failed to parse arguments for tool call ID: {}",
+                                        tool_call.id
+                                    );
                                 }
                             } else {
-                                log::error!("Arguments are not a string for tool call ID: {}", tool_call.id);
+                                log::error!(
+                                    "Arguments are not a string for tool call ID: {}",
+                                    tool_call.id
+                                );
                             }
                         }
                     }
@@ -1178,7 +1234,7 @@ pub async fn assistant_chat_handler_form(
     }
     // If run is not finished, save and return a sorry message with the role "error"
     if run.status != "completed" {
-        db.save_message_to_db(
+        log.save_message_to_db(
             &chat_id,
             "error",
             "Sorry I am currently facing some technical issues, please try again.",
@@ -1196,7 +1252,7 @@ pub async fn assistant_chat_handler_form(
     // Retrieve the last message from the conversation, which should be the assistant's response
     chat.get_messages(true).await?;
     if let Some(last_message) = chat.messages.last() {
-        db.save_message_to_db(&chat_id, "assistant", &last_message.text)
+        log.save_message_to_db(&chat_id, "assistant", &last_message.text)
             .await?;
     }
     // Return the updated conversation history including the assistant's response
@@ -1210,7 +1266,7 @@ async fn get_order_status_dummy(
     _order_id: &str,
 ) -> Result<Option<String>, AssistantError> {
     // Dummy function that returns a fixed delivery date
-    let order_status= "delivered";
+    let order_status = "delivered";
     Ok(Some(order_status.to_string()))
 }
 
@@ -1218,9 +1274,9 @@ async fn get_authorization_token(
     db_pool: &MySqlPool,
     user_id: &str,
 ) -> Result<Option<String>, AssistantError> {
-    let user_id_int: i32 = user_id.parse().map_err(|e| {
-        AssistantError::DatabaseError(format!("Failed to parse user_id: {}", e))
-    })?;
+    let user_id_int: i32 = user_id
+        .parse()
+        .map_err(|e| AssistantError::DatabaseError(format!("Failed to parse user_id: {}", e)))?;
     let main_query = "
         SELECT custom_auth_token FROM users WHERE id = ?
     ";
@@ -1229,7 +1285,7 @@ async fn get_authorization_token(
     //    .fetch_optional(db_pool)
     //    .await
     //    .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-    let authorization_token = env::var("X_Custom_Authorization").map_err(|_| {
+    let authorization_token = env::var("X_CUSTOM_AUTHORIZATION").map_err(|_| {
         AssistantError::DatabaseError(
             "X_Custom_Authorization environment variable not set".to_string(),
         )
@@ -1237,10 +1293,7 @@ async fn get_authorization_token(
 
     Ok(Some(authorization_token))
 }
-async fn get_orders(
-    user_id: &str,
-    db_pool: &MySqlPool,
-) -> Result<Option<String>, AssistantError> {
+async fn get_orders(user_id: &str, db_pool: &MySqlPool) -> Result<Option<String>, AssistantError> {
     let x_proxy_authorization = env::var("X_PROXY_AUTHORIZATION").map_err(|_| {
         AssistantError::DatabaseError(
             "X_PROXY_AUTHORIZATION environment variable not set".to_string(),
@@ -1252,7 +1305,11 @@ async fn get_orders(
     // Check if the authorization token is available
     let token = match authorization_token {
         Some(token) => token,
-        None => return Err(AssistantError::OpenAIError("Authorization token not found".to_string())),
+        None => {
+            return Err(AssistantError::OpenAIError(
+                "Authorization token not found".to_string(),
+            ))
+        }
     };
     // Define the API endpoint
     let api_url = "https://api.buycycle.com/en/api/v3/account/orders?offset=0&limit=100&type=sale";
@@ -1270,7 +1327,10 @@ async fn get_orders(
     // Check if the response is successful
     if response.status().is_success() {
         // Parse the response body as a string
-        let order_status = response.text().await.map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
+        let order_status = response
+            .text()
+            .await
+            .map_err(|e| AssistantError::OpenAIError(e.to_string()))?;
         Ok(Some(order_status))
     } else {
         // Handle non-successful response
