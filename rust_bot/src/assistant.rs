@@ -178,16 +178,16 @@ impl Ressources {
     pub async fn bikes_db(&self) -> Result<(), AssistantError> {
         // Define the query
         let main_query = "
-            SELECT buycycle.bikes.slug as slug,
-                   buycycle.bike_categories.slug as category,
-                   buycycle.bike_additional_infos.frame_size as frame_size,
-                   buycycle.bike_additional_infos.rider_height_min as rider_height_min,
-                   buycycle.bike_additional_infos.rider_height_max as rider_height_max,
+            SELECT bikes.slug as slug,
+                   bike_categories.slug as category,
+                   bike_additional_infos.frame_size as frame_size,
+                   bike_additional_infos.rider_height_min as rider_height_min,
+                   bike_additional_infos.rider_height_max as rider_height_max,
                    bikes.price,
                    bikes.color
-            FROM buycycle.bikes
-            JOIN buycycle.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
-            JOIN buycycle.bike_categories ON bikes.bike_category_id = bike_categories.id
+            FROM buycycle_2023_01_20.bikes
+            JOIN buycycle_2023_01_20.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
+            JOIN buycycle_2023_01_20.bike_categories ON bikes.bike_category_id = bike_categories.id
             WHERE bikes.status = 'active'
             LIMIT 100
         ";
@@ -1278,20 +1278,15 @@ async fn get_authorization_token(
         .parse()
         .map_err(|e| AssistantError::DatabaseError(format!("Failed to parse user_id: {}", e)))?;
     let main_query = "
-        SELECT custom_auth_token FROM users WHERE id = ?
+        SELECT custom_auth_token FROM buycycle_2023_01_20.users WHERE id = ?
     ";
-    //let authorization_token: Option<String> = sqlx::query_scalar(main_query)
-    //    .bind(user_id_int)
-    //    .fetch_optional(db_pool)
-    //    .await
-    //    .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
-    let authorization_token = env::var("X_CUSTOM_AUTHORIZATION").map_err(|_| {
-        AssistantError::DatabaseError(
-            "X_Custom_Authorization environment variable not set".to_string(),
-        )
-    })?;
+    let authorization_token: Option<String> = sqlx::query_scalar(main_query)
+        .bind(user_id_int)
+        .fetch_optional(db_pool)
+        .await
+        .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
 
-    Ok(Some(authorization_token))
+    Ok(authorization_token)
 }
 async fn get_orders(user_id: &str, db_pool: &MySqlPool) -> Result<Option<String>, AssistantError> {
     let x_proxy_authorization = env::var("X_PROXY_AUTHORIZATION").map_err(|_| {
