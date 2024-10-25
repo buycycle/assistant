@@ -185,9 +185,9 @@ impl Ressources {
                    bike_additional_infos.rider_height_max as rider_height_max,
                    bikes.price,
                    bikes.color
-            FROM buycycle_2023_01_20.bikes
-            JOIN buycycle_2023_01_20.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
-            JOIN buycycle_2023_01_20.bike_categories ON bikes.bike_category_id = bike_categories.id
+            FROM buycycle.bikes
+            JOIN buycycle.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
+            JOIN buycycle.bike_categories ON bikes.bike_category_id = bike_categories.id
             WHERE bikes.status = 'active'
             LIMIT 100
         ";
@@ -1106,7 +1106,7 @@ pub async fn assistant_chat_handler_form(
         }
     };
     // Log user_id and message
-    info!("chat_id: {}, message: {}", user_id, message);
+    info!("chat_id: {}, message: {}", chat_id, message);
     // Save the user's message to the database
     log.save_message_to_db(&chat_id.to_string(), "user", message)
         .await?;
@@ -1278,11 +1278,22 @@ async fn get_authorization_token(
         .parse()
         .map_err(|e| AssistantError::DatabaseError(format!("Failed to parse user_id: {}", e)))?;
     let main_query = "
-        SELECT custom_auth_token FROM buycycle_2023_01_20.users WHERE id = ?
+        SELECT custom_auth_token FROM buycycle.users WHERE id = ?
     ";
+    //xx check why this is necesarry
+    let database_url_buycycle =
+        env::var("DATABASE_URL_BUYCYCLE").expect("DATABASE_URL must be set");
+    // Create a new database connection pool
+    let db_pool_buycycle = match DB::create_pool(&database_url_buycycle).await {
+        Ok(pool) => pool,
+        Err(e) => {
+            log::error!("Failed to create database pool buycycle: {:?}", e);
+            std::process::exit(1);
+        }
+    };
     let authorization_token: Option<String> = sqlx::query_scalar(main_query)
         .bind(user_id_int)
-        .fetch_optional(db_pool)
+        .fetch_optional(&db_pool_buycycle)
         .await
         .map_err(|e| AssistantError::DatabaseError(e.to_string()))?;
 
@@ -1294,6 +1305,7 @@ async fn get_orders(user_id: &str, db_pool: &MySqlPool) -> Result<Option<String>
             "X_PROXY_AUTHORIZATION environment variable not set".to_string(),
         )
     })?;
+
     // Get the authorization token
     let authorization_token = get_authorization_token(db_pool, user_id).await?;
 
