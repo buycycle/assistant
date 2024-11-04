@@ -29,7 +29,9 @@ variables:
     - export IMAGE_TAG="${ENVIRONMENT}-${TAG}"
     - env | grep OPENAI_API_KEY >> rust_bot/.env
     - env | grep DATABASE_URL >> rust_bot/.env
-    - env | grep DATABASE_URL_PROD >> rust_bot/.env
+    - env | grep DATABASE_URL_BUYCYCLE>> rust_bot/.env
+    - env | grep DATABASE_URL_LOG >> rust_bot/.env
+    - env | grep X_PROXY_AUTHORIZATION >> rust_bot/.env
     - echo "Build Docker image"
     - docker build -f docker/${DOCKERFILE} -t $AWS_ECR_REGISTRY:$IMAGE_TAG  .
     - echo "Pushing Docker image to ECR"
@@ -48,31 +50,31 @@ variables:
     - cd helm/
     - echo "Deploy Bot-${ENVIRONMENT}"
     - helm repo add dasmeta https://dasmeta.github.io/helm
-    - helm upgrade --install chat-bot-${ENVIRONMENT} -n ${NAMESPACE} dasmeta/base --version 0.1.62 -f values.yaml -f values.${ENVIRONMENT}.yaml --set image.tag=$IMAGE_TAG --set labels.label1.value=$IMAGE_TAG 
+    - helm upgrade --install chat-bot-${ENVIRONMENT} -n ${NAMESPACE} dasmeta/base --version 0.1.62 -f values.yaml -f values.${ENVIRONMENT}.yaml --set image.tag=$IMAGE_TAG --set labels.label1.value=$IMAGE_TAG
 
 
 build:
   extends: .build
   rules:
-    - if: $CI_COMMIT_BRANCH == "main" 
+    - if: $CI_COMMIT_BRANCH == "main"
       variables:
         ENVIRONMENT: prod
         DOCKERFILE: main.dockerfile
-    - if: $CI_COMMIT_BRANCH == "dev" 
+    - if: $CI_COMMIT_BRANCH == "dev"
       variables:
         ENVIRONMENT: dev
         DOCKERFILE: dev.dockerfile
-  
+
 deploy:
   extends: .deploy
   stage: deploy
   rules:
-    - if: $CI_COMMIT_BRANCH == "main" 
+    - if: $CI_COMMIT_BRANCH == "main"
       variables:
         ENVIRONMENT: prod
         CLUSTER_NAME: buycycle-cluster
         NAMESPACE: live
-    - if: $CI_COMMIT_BRANCH == "dev" 
+    - if: $CI_COMMIT_BRANCH == "dev"
       variables:
         ENVIRONMENT: dev
         CLUSTER_NAME: buycycle-cluster
