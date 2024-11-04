@@ -29,6 +29,8 @@ variables:
     - export IMAGE_TAG="${ENVIRONMENT}-${TAG}"
     - env | grep OPENAI_API_KEY >> rust_bot/.env
     - env | grep DATABASE_URL >> rust_bot/.env
+    - env | grep DATABASE_URL_BUYCYCLE >> rust_bot/.env
+    - env | grep DATABASE_URL_LOG >> rust_bot/.env
     - env | grep X_PROXY_AUTHORIZATION >> rust_bot/.env
     - echo "Build Docker image"
     - docker build -f docker/${DOCKERFILE} -t $AWS_ECR_REGISTRY:$IMAGE_TAG  .
