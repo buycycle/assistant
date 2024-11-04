@@ -40,7 +40,7 @@ async fn main() {
     dotenv().ok();
     // Create DB connection pools for log and buycycle DB
     let database_url_buycycle =
-        env::var("DATABASE_URL_BUYCYCLE").expect("DATABASE_URL must be set");
+        env::var("DATABASE_URL_LOG").expect("DATABASE_URL must be set");
     // Create a new database connection pool
     let db_pool_buycycle = match DB::create_pool(&database_url_buycycle).await {
         Ok(pool) => pool,

@@ -5,7 +5,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
-use log::{info, Log};
+use log::info;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -185,9 +185,9 @@ impl Ressources {
                    bike_additional_infos.rider_height_max as rider_height_max,
                    bikes.price,
                    bikes.color
-            FROM buycycle.bikes
-            JOIN buycycle.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
-            JOIN buycycle.bike_categories ON bikes.bike_category_id = bike_categories.id
+            FROM buycycle_2023_01_20.bikes
+            JOIN buycycle_2023_01_20.bike_additional_infos ON bikes.id = bike_additional_infos.bike_id
+            JOIN buycycle_2023_01_20.bike_categories ON bikes.bike_category_id = bike_categories.id
             WHERE bikes.status = 'active'
             LIMIT 100
         ";
@@ -858,11 +858,7 @@ pub struct LOG {
     db_pool: Pool<MySql>,
 }
 impl LOG {
-    /// Creates a new Log instance with the given database connection pool.
-    pub fn new(db_pool: Pool<MySql>) -> Self {
-        LOG { db_pool }
-    }
-    /// Retrieves the chat ID for a given user ID from the database.
+   /// Retrieves the chat ID for a given user ID from the database.
     pub async fn get_chat_id(&self, user_id: &str) -> Result<Option<String>, AssistantError> {
         let result = sqlx::query!(
             "SELECT id FROM buycycle_chatbot.chats WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
@@ -1274,11 +1270,12 @@ async fn get_authorization_token(
     db_pool: &MySqlPool,
     user_id: &str,
 ) -> Result<Option<String>, AssistantError> {
+    info!("Received user_id: {}", user_id);
     let user_id_int: i32 = user_id
         .parse()
         .map_err(|e| AssistantError::DatabaseError(format!("Failed to parse user_id: {}", e)))?;
     let main_query = "
-        SELECT custom_auth_token FROM buycycle.users WHERE id = ?
+        SELECT custom_auth_token FROM buycycle_2023_01_20.users WHERE id = ?
     ";
     //xx check why this is necesarry
     let database_url_buycycle =
@@ -1351,7 +1348,7 @@ pub fn get_tool_definition() -> Value {
             "type": "function",
             "function": {
                 "name": "get_orders",
-                "description": "Retrieve the list of my oders",
+                "description": "get the list of orders",
                 "parameters": {
                     "type": "object",
                     "properties": {
